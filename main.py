@@ -33,12 +33,34 @@ DARK_OVERLAY_ALPHA = 220
 DARK_BLOB_COUNT = 2
 DARK_BLOB_MIN_SIZE = 30
 CANDLE_LIGHT_RADIUS = 1
+SHADOW_BLUR_PASSES = 3
+SHADOW_CORNER_RADIUS = 14
+SHADOW_PAD = 8
 
 SPOTLIGHT_RADIUS = 1
 SPOTLIGHT_FEATHER = 40
 SPOTLIGHT_ALPHA = 210
 PLAYER_LIGHT_ALPHA = 40
 CANDLE_LIGHT_ALPHA = 0
+
+MONSTER_SMELL_INTERVAL = 5.0
+MONSTER_SMELL_RANGE_TILES = 10
+MONSTER_SMELL_SPEED = 260
+MONSTER_PASSIVE_SPEED = 120
+MONSTER_STOP_DISTANCE = 8
+MONSTER_HEAD_SCALE = 1.2
+MONSTER_ARM_UPPER_SCALE_X = 1.7
+MONSTER_ARM_UPPER_SCALE_Y = 0.35
+MONSTER_ARM_LOWER_SCALE_X = 1.5
+MONSTER_ARM_LOWER_SCALE_Y = 0.3
+MONSTER_SPAWN_SAFE_RADIUS = 8
+MONSTER_PATROL_COUNT = 14
+MONSTER_PATROL_SAMPLE_SIZE = 200
+MONSTER_GRAB_RADIUS_TILES = 4
+MONSTER_STEP_SPEED = 1.6
+MONSTER_GRAB_SWAY = 0.06
+MONSTER_ANCHOR_LERP = 0.08
+MONSTER_TINT = (70, 70, 70)
 
 FREEZE_ENABLED = True
 COLD_MAX = 100.0
@@ -157,6 +179,25 @@ def load_svg_surface(path, size):
             return surface
 
 
+def tint_surface(surface, tint):
+    tinted = surface.copy()
+    tinted.fill(tint, special_flags=pygame.BLEND_RGB_MULT)
+    return tinted
+
+
+def soften_alpha_mask(surface, passes):
+    for _ in range(passes):
+        surface = pygame.transform.smoothscale(
+            surface,
+            (
+                max(1, surface.get_width() // 2),
+                max(1, surface.get_height() // 2),
+            ),
+        )
+        surface = pygame.transform.smoothscale(surface, (SCREEN_WIDTH, SCREEN_HEIGHT))
+    return surface
+
+
 def is_solid(tile):
     return tile in SOLID_TILES
 
@@ -257,6 +298,181 @@ class Player:
         screen.blit(self.images[self.anim_index], (self.rect.x - offset.x, self.rect.y - offset.y))
 
 
+class Monster:
+    def __init__(self, start_pos, assets, patrol_points):
+        self.pos = pygame.Vector2(start_pos)
+        self.head = assets["head"]
+        self.arm_upper = assets["arm_upper"]
+        self.arm_lower = assets["arm_lower"]
+        self.smell_timer = 0.0
+        self.target = None
+        self.patrol_points = [pygame.Vector2(p) for p in patrol_points]
+        self.patrol_index = 0
+        self.passive_target = None
+        self.moving = False
+        self.step_time = 0.0
+        self.left_anchor = None
+        self.right_anchor = None
+
+    def update(self, dt, player_pos, grid):
+        self.smell_timer += dt
+        if self.smell_timer >= MONSTER_SMELL_INTERVAL:
+            self.smell_timer = 0.0
+            distance = (pygame.Vector2(player_pos) - self.pos).length()
+            if distance <= MONSTER_SMELL_RANGE_TILES * TILE_SIZE:
+                self.target = pygame.Vector2(player_pos)
+                self.passive_target = None
+
+        if self.target is not None:
+            to_target = self.target - self.pos
+            if to_target.length_squared() <= MONSTER_STOP_DISTANCE * MONSTER_STOP_DISTANCE:
+                self.target = None
+                self.moving = False
+            else:
+                direction = to_target.normalize()
+                self.pos += direction * MONSTER_SMELL_SPEED * dt
+                self.moving = True
+        else:
+            self.moving = False
+
+        if self.target is None:
+            if self.passive_target is None:
+                self.passive_target = self.next_patrol_target()
+            if self.passive_target is not None:
+                to_target = self.passive_target - self.pos
+                if to_target.length_squared() <= MONSTER_STOP_DISTANCE * MONSTER_STOP_DISTANCE:
+                    self.passive_target = None
+                else:
+                    direction = to_target.normalize()
+                    self.pos += direction * MONSTER_PASSIVE_SPEED * dt
+                    self.moving = True
+
+        speed_factor = MONSTER_STEP_SPEED if self.moving else 1.0
+        self.step_time += dt * speed_factor
+        self.update_anchors(grid)
+
+    def next_patrol_target(self):
+        if not self.patrol_points:
+            return None
+        if self.patrol_index >= len(self.patrol_points):
+            self.patrol_index = 0
+        target = self.patrol_points[self.patrol_index]
+        self.patrol_index += 1
+        return target
+
+    def draw(self, screen, offset):
+        head_center = pygame.Vector2(self.pos.x - offset.x, self.pos.y - offset.y)
+        head_rect = self.head.get_rect(center=(head_center.x, head_center.y))
+
+        left_shoulder, right_shoulder = self.get_shoulders()
+        left_anchor = self.apply_grab_offset(left_shoulder, self.left_anchor, 0.0)
+        right_anchor = self.apply_grab_offset(right_shoulder, self.right_anchor, math.pi)
+
+        self.draw_arm(screen, offset, left_shoulder, left_anchor, 1.0, flip_lower=True)
+        self.draw_arm(screen, offset, right_shoulder, right_anchor, -1.0)
+        screen.blit(self.head, head_rect.topleft)
+
+    def get_shoulders(self):
+        shoulder_dx = self.head.get_width() * 0.35
+        shoulder_dy = self.head.get_height() * 0.1
+        left_shoulder = pygame.Vector2(self.pos.x - shoulder_dx, self.pos.y + shoulder_dy)
+        right_shoulder = pygame.Vector2(self.pos.x + shoulder_dx, self.pos.y + shoulder_dy)
+        return left_shoulder, right_shoulder
+
+    def update_anchors(self, grid):
+        if grid is None:
+            return
+        center_tile = (int(self.pos.x // TILE_SIZE), int(self.pos.y // TILE_SIZE))
+        wall_tiles = get_wall_tiles_near(grid, center_tile, MONSTER_GRAB_RADIUS_TILES)
+        left_shoulder, right_shoulder = self.get_shoulders()
+        floor_offset = TILE_SIZE * 0.9
+
+        if not wall_tiles:
+            desired_left = pygame.Vector2(left_shoulder.x, left_shoulder.y + floor_offset)
+            desired_right = pygame.Vector2(right_shoulder.x, right_shoulder.y + floor_offset)
+        else:
+            left_target, right_target = pick_arm_targets(wall_tiles, self.pos)
+            if left_target is None:
+                left_target = (left_shoulder.x, left_shoulder.y + floor_offset)
+            if right_target is None:
+                right_target = (right_shoulder.x, right_shoulder.y + floor_offset)
+            desired_left = pygame.Vector2(left_target)
+            desired_right = pygame.Vector2(right_target)
+
+        if self.left_anchor is None:
+            self.left_anchor = desired_left
+        else:
+            self.left_anchor = self.left_anchor.lerp(desired_left, MONSTER_ANCHOR_LERP)
+        if self.right_anchor is None:
+            self.right_anchor = desired_right
+        else:
+            self.right_anchor = self.right_anchor.lerp(desired_right, MONSTER_ANCHOR_LERP)
+
+    def apply_grab_offset(self, shoulder, target, phase):
+        if target is None:
+            return shoulder + pygame.Vector2(0, TILE_SIZE * 0.9)
+        target_vec = pygame.Vector2(target)
+        if not self.moving:
+            return target_vec
+        direction = target_vec - shoulder
+        if direction.length_squared() == 0:
+            return target_vec
+        direction = direction.normalize()
+        offset = math.sin(self.step_time + phase) * (TILE_SIZE * MONSTER_GRAB_SWAY)
+        return target_vec + direction * offset
+
+    def draw_arm(self, screen, offset, shoulder, target, bend_sign, flip_lower=False):
+        upper_len = self.arm_upper.get_width() * 0.9
+        lower_len = self.arm_lower.get_width() * 0.9
+        upper_angle, lower_angle, elbow = self.solve_arm_ik(
+            shoulder, target, upper_len, lower_len, bend_sign
+        )
+        shoulder_screen = pygame.Vector2(shoulder.x - offset.x, shoulder.y - offset.y)
+        self.blit_segment(screen, self.arm_upper, shoulder_screen, upper_angle)
+
+        elbow_screen = pygame.Vector2(elbow.x - offset.x, elbow.y - offset.y)
+        if flip_lower:
+            lower_angle += 180
+        self.blit_segment(screen, self.arm_lower, elbow_screen, lower_angle)
+
+    @staticmethod
+    def solve_arm_ik(shoulder, target, upper_len, lower_len, bend_sign):
+        dx = target.x - shoulder.x
+        dy = target.y - shoulder.y
+        dist = math.hypot(dx, dy)
+        if dist < 1e-3:
+            dist = 1e-3
+        max_reach = upper_len + lower_len - 1
+        min_reach = abs(upper_len - lower_len) + 1
+        dist = max(min_reach, min(dist, max_reach))
+
+        base_angle = math.atan2(dy, dx)
+        cos_angle = (upper_len * upper_len + dist * dist - lower_len * lower_len) / (2 * upper_len * dist)
+        cos_angle = max(-1.0, min(1.0, cos_angle))
+        offset_angle = math.acos(cos_angle)
+        upper_angle = base_angle + bend_sign * offset_angle
+
+        elbow = pygame.Vector2(
+            shoulder.x + math.cos(upper_angle) * upper_len,
+            shoulder.y + math.sin(upper_angle) * upper_len,
+        )
+        lower_angle = math.atan2(target.y - elbow.y, target.x - elbow.x)
+
+        return math.degrees(upper_angle), math.degrees(lower_angle), elbow
+
+    @staticmethod
+    def blit_segment(screen, image, pivot, angle_deg):
+        rotated = pygame.transform.rotate(image, -angle_deg)
+        pivot_offset = pygame.Vector2(0, image.get_height() / 2)
+        image_center = pygame.Vector2(image.get_width() / 2, image.get_height() / 2)
+        offset = pivot_offset - image_center
+        rotated_offset = offset.rotate(angle_deg)
+        rect = rotated.get_rect(
+            center=(pivot.x - rotated_offset.x, pivot.y - rotated_offset.y)
+        )
+        screen.blit(rotated, rect.topleft)
+
+
 class Item:
     def __init__(self, kind, tile, active=False):
         self.kind = kind
@@ -308,6 +524,90 @@ def spawn_items(grid, spawn_tile):
             break
         items.append(Item(kind, available.pop()))
     return items
+
+
+def tile_to_world_center(tile):
+    return (
+        tile[0] * TILE_SIZE + TILE_SIZE / 2,
+        tile[1] * TILE_SIZE + TILE_SIZE / 2,
+    )
+
+
+def build_patrol_points(grid, count, sample_size):
+    floor_tiles = collect_floor_tiles(grid)
+    if not floor_tiles:
+        return []
+
+    rng = random.Random()
+    points = [rng.choice(floor_tiles)]
+    while len(points) < min(count, len(floor_tiles)):
+        candidates = rng.sample(floor_tiles, min(sample_size, len(floor_tiles)))
+        best_tile = None
+        best_dist = -1
+        for cand in candidates:
+            dist = min(
+                (cand[0] - p[0]) ** 2 + (cand[1] - p[1]) ** 2
+                for p in points
+            )
+            if dist > best_dist:
+                best_dist = dist
+                best_tile = cand
+        points.append(best_tile)
+
+    return [tile_to_world_center(tile) for tile in points]
+
+
+def pick_monster_spawn(grid, player_tile):
+    floor_tiles = collect_floor_tiles(grid)
+    far_tiles = [
+        tile
+        for tile in floor_tiles
+        if abs(tile[0] - player_tile[0]) + abs(tile[1] - player_tile[1]) > MONSTER_SPAWN_SAFE_RADIUS
+    ]
+    if not far_tiles:
+        far_tiles = floor_tiles
+    return random.choice(far_tiles)
+
+
+def get_wall_tiles_near(grid, center_tile, radius):
+    rows = len(grid)
+    cols = len(grid[0])
+    tiles = []
+    for ty in range(max(0, center_tile[1] - radius), min(rows - 1, center_tile[1] + radius) + 1):
+        for tx in range(max(0, center_tile[0] - radius), min(cols - 1, center_tile[0] + radius) + 1):
+            if grid[ty][tx] in (TILE_WALL, TILE_WALL_TOP):
+                tiles.append((tx, ty))
+    return tiles
+
+
+def pick_arm_targets(wall_tiles, monster_pos):
+    if not wall_tiles:
+        return None, None
+
+    world_positions = [tile_to_world_center(tile) for tile in wall_tiles]
+
+    def distance_sq(pos):
+        return (pos[0] - monster_pos.x) ** 2 + (pos[1] - monster_pos.y) ** 2
+
+    left_candidates = [pos for pos in world_positions if pos[0] <= monster_pos.x]
+    right_candidates = [pos for pos in world_positions if pos[0] >= monster_pos.x]
+
+    left = min(left_candidates, key=distance_sq) if left_candidates else None
+    right = min(right_candidates, key=distance_sq) if right_candidates else None
+
+    if left is None:
+        left = min(world_positions, key=distance_sq)
+    if right is None:
+        right = min((pos for pos in world_positions if pos != left), key=distance_sq, default=left)
+    if left == right:
+        alternate = min(
+            (pos for pos in world_positions if pos != left),
+            key=distance_sq,
+            default=left,
+        )
+        right = alternate
+
+    return left, right
 
 
 def tile_in_bounds(grid, tile):
@@ -522,7 +822,18 @@ def draw_darkness(screen, dark_tiles, overlay, candle_centers, offset):
     for tx, ty in dark_tiles:
         world_x = tx * TILE_SIZE - offset.x
         world_y = ty * TILE_SIZE - offset.y
-        darkness.blit(overlay, (world_x, world_y))
+        rect = pygame.Rect(
+            world_x - SHADOW_PAD,
+            world_y - SHADOW_PAD,
+            TILE_SIZE + SHADOW_PAD * 2,
+            TILE_SIZE + SHADOW_PAD * 2,
+        )
+        pygame.draw.rect(
+            darkness,
+            (0, 0, 0, DARK_OVERLAY_ALPHA),
+            rect,
+            border_radius=SHADOW_CORNER_RADIUS + SHADOW_PAD,
+        )
 
     candle_radius = int((CANDLE_LIGHT_RADIUS + 0.5) * TILE_SIZE)
     for candle_center in candle_centers:
@@ -532,6 +843,7 @@ def draw_darkness(screen, dark_tiles, overlay, candle_centers, offset):
         )
         pygame.draw.circle(darkness, (0, 0, 0, 0), screen_pos, candle_radius)
 
+    darkness = soften_alpha_mask(darkness, SHADOW_BLUR_PASSES)
     screen.blit(darkness, (0, 0))
 
 
@@ -618,6 +930,36 @@ def main():
         load_svg_surface(TEXTURES_DIR / "player_walk2.svg", (player_size, player_size)),
     ]
 
+    monster_assets = {
+        "head": tint_surface(
+            load_svg_surface(
+                TEXTURES_DIR / "monster_head.svg",
+                (int(TILE_SIZE * MONSTER_HEAD_SCALE), int(TILE_SIZE * MONSTER_HEAD_SCALE)),
+            ),
+            MONSTER_TINT,
+        ),
+        "arm_upper": tint_surface(
+            load_svg_surface(
+                TEXTURES_DIR / "monster_arm_upper.svg",
+                (
+                    int(TILE_SIZE * MONSTER_ARM_UPPER_SCALE_X),
+                    int(TILE_SIZE * MONSTER_ARM_UPPER_SCALE_Y),
+                ),
+            ),
+            MONSTER_TINT,
+        ),
+        "arm_lower": tint_surface(
+            load_svg_surface(
+                TEXTURES_DIR / "monster_arm_lower.svg",
+                (
+                    int(TILE_SIZE * MONSTER_ARM_LOWER_SCALE_X),
+                    int(TILE_SIZE * MONSTER_ARM_LOWER_SCALE_Y),
+                ),
+            ),
+            MONSTER_TINT,
+        ),
+    }
+
     spawn_tile = find_spawn_tile(grid)
     dark_tiles = build_dark_tiles(grid, spawn_tile)
     items = spawn_items(grid, spawn_tile)
@@ -629,6 +971,13 @@ def main():
     start_x = spawn_tile[0] * TILE_SIZE + (TILE_SIZE - player_size) / 2
     start_y = spawn_tile[1] * TILE_SIZE + (TILE_SIZE - player_size) / 2
     player = Player((start_x, start_y), player_size, player_images)
+    monster_tile = pick_monster_spawn(grid, spawn_tile)
+    monster_pos = (
+        monster_tile[0] * TILE_SIZE + TILE_SIZE / 2,
+        monster_tile[1] * TILE_SIZE + TILE_SIZE / 2,
+    )
+    patrol_points = build_patrol_points(grid, MONSTER_PATROL_COUNT, MONSTER_PATROL_SAMPLE_SIZE)
+    monster = Monster(monster_pos, monster_assets, patrol_points)
 
     running = True
     while running:
@@ -652,6 +1001,7 @@ def main():
 
         if not dead:
             player.update(dt, grid, map_size_px)
+            monster.update(dt, player.rect.center, grid)
         camera = compute_camera(player.rect, map_size_px)
 
         player_tile = get_player_tile(player)
@@ -680,6 +1030,7 @@ def main():
         draw_carried_item(screen, player, item_assets, camera)
         draw_spotlight(screen, player, candle_centers, camera)
         draw_darkness(screen, dark_tiles, dark_overlay, candle_centers, camera)
+        monster.draw(screen, camera)
         draw_item_outlines(screen, items, item_assets, item_outlines, camera, player)
         if FREEZE_ENABLED:
             draw_cold_bar(screen, cold_value)

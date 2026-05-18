@@ -1,0 +1,128 @@
+[
+  {
+    "level": 1,
+    "monster_abilities": {
+      "smell": true,
+      "hearing": false,
+      "vision": false,
+      "cloning": 0
+    },
+    "debuffs": {
+      "freezing": false,
+      "hunger": false,
+      "darkness_amount": 0
+    },
+    "objectives": {
+      "coal": 3,
+      "levers": 0
+    }
+  },
+  {
+    "level": 2,
+    "monster_abilities": {
+      "smell": true,
+      "hearing": false,
+      "vision": true,
+      "cloning": 0
+    },
+    "debuffs": {
+      "freezing": false,
+      "hunger": false,
+      "darkness_amount": 0
+    },
+    "objectives": {
+      "coal": 4,
+      "levers": 0
+    }
+  },
+  {
+    "level": 3,
+    "monster_abilities": {
+      "smell": true,
+      "hearing": false,
+      "vision": true,
+      "cloning": 0
+    },
+    "debuffs": {
+      "freezing": true,
+      "hunger": false,
+      "darkness_amount": 1
+    },
+    "objectives": {
+      "coal": 5,
+      "levers": 2
+    }
+  },
+  {
+    "level": 4,
+    "monster_abilities": {
+      "smell": true,
+      "hearing": true,
+      "vision": true,
+      "cloning": 0
+    },
+    "debuffs": {
+      "freezing": true,
+      "hunger": false,
+      "darkness_amount": 1
+    },
+    "objectives": {
+      "coal": 5,
+      "levers": 3
+    }
+  },
+  {
+    "level": 5,
+    "monster_abilities": {
+      "smell": true,
+      "hearing": true,
+      "vision": true,
+      "cloning": 1
+    },
+    "debuffs": {
+      "freezing": true,
+      "hunger": false,
+      "darkness_amount": 1
+    },
+    "objectives": {
+      "coal": 6,
+      "levers": 3
+    }
+  },
+  {
+    "level": 6,
+    "monster_abilities": {
+      "smell": true,
+      "hearing": true,
+      "vision": true,
+      "cloning": 1
+    },
+    "debuffs": {
+      "freezing": true,
+      "hunger": true,
+      "darkness_amount": 1
+    },
+    "objectives": {
+      "coal": 7,
+      "levers": 3
+    }
+  },
+  {
+    "level": 7,
+    "monster_abilities": {
+      "smell": true,
+      "hearing": true,
+      "vision": true,
+      "cloning": 2
+    },
+    "debuffs": {
+      "freezing": true,
+      "hunger": true,
+      "darkness_amount": 1
+    },
+    "objectives": {
+      "coal": 0,
+      "levers": 5
+    }
+  }
+]
