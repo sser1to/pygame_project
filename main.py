@@ -15,9 +15,9 @@ TILE_FLOOR = 1
 TILE_WALL = 2
 TILE_WALL_TOP = 3
 TILE_FURNACE = 4
+TILE_SPAWN = 6
 
 SOLID_TILES = {0, TILE_WALL, TILE_WALL_TOP, TILE_FURNACE}
-PLAYER_START_TILE = (16, 4)
 PLAYER_SPEED = 220
 PLAYER_ANIM_INTERVAL = 0.18
 
@@ -38,6 +38,15 @@ def load_map(path):
         if len(row) < width:
             row.extend([0] * (width - len(row)))
     return rows
+
+
+def find_spawn_tile(grid):
+    for ty, row in enumerate(grid):
+        for tx, tile in enumerate(row):
+            if tile == TILE_SPAWN:
+                grid[ty][tx] = TILE_FLOOR
+                return (tx, ty)
+    return (1, 1)
 
 
 def load_svg_surface(path, size):
@@ -178,6 +187,22 @@ def draw_map(screen, grid, assets, offset):
                 continue
             world_x = tx * TILE_SIZE
             world_y = ty * TILE_SIZE
+            if tile == TILE_FURNACE:
+                if (tx, ty) in skipped_furnace:
+                    continue
+                if tx + 1 < cols and grid[ty][tx + 1] == TILE_FURNACE:
+                    screen.blit(assets["floor"], (world_x - offset.x, world_y - offset.y))
+                    screen.blit(
+                        assets["floor"],
+                        (world_x + TILE_SIZE - offset.x, world_y - offset.y),
+                    )
+                    screen.blit(
+                        assets["furnace"],
+                        (world_x - offset.x, world_y - offset.y),
+                    )
+                    skipped_furnace.add((tx + 1, ty))
+                    continue
+
             screen.blit(assets["floor"], (world_x - offset.x, world_y - offset.y))
 
             if tile == TILE_WALL:
@@ -185,16 +210,7 @@ def draw_map(screen, grid, assets, offset):
             elif tile == TILE_WALL_TOP:
                 screen.blit(assets["wall_top"], (world_x - offset.x, world_y - offset.y))
             elif tile == TILE_FURNACE:
-                if (tx, ty) in skipped_furnace:
-                    continue
-                if tx + 1 < cols and grid[ty][tx + 1] == TILE_FURNACE:
-                    screen.blit(
-                        assets["furnace"],
-                        (world_x - offset.x, world_y - offset.y),
-                    )
-                    skipped_furnace.add((tx + 1, ty))
-                else:
-                    screen.blit(assets["furnace_single"], (world_x - offset.x, world_y - offset.y))
+                screen.blit(assets["furnace_single"], (world_x - offset.x, world_y - offset.y))
 
 
 def main():
@@ -216,14 +232,16 @@ def main():
         "furnace_single": load_svg_surface(TEXTURES_DIR / "furnace.svg", (TILE_SIZE, TILE_SIZE)),
     }
 
-    player_size = int(TILE_SIZE * 0.9)
+    player_size = int(TILE_SIZE * 0.75)
     player_images = [
         load_svg_surface(TEXTURES_DIR / "player_stand.svg", (player_size, player_size)),
         load_svg_surface(TEXTURES_DIR / "player_walk.svg", (player_size, player_size)),
+        load_svg_surface(TEXTURES_DIR / "player_walk2.svg", (player_size, player_size)),
     ]
 
-    start_x = PLAYER_START_TILE[0] * TILE_SIZE + (TILE_SIZE - player_size) / 2
-    start_y = PLAYER_START_TILE[1] * TILE_SIZE + (TILE_SIZE - player_size) / 2
+    spawn_tile = find_spawn_tile(grid)
+    start_x = spawn_tile[0] * TILE_SIZE + (TILE_SIZE - player_size) / 2
+    start_y = spawn_tile[1] * TILE_SIZE + (TILE_SIZE - player_size) / 2
     player = Player((start_x, start_y), player_size, player_images)
 
     running = True
