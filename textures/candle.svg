@@ -1,0 +1,32 @@
+<svg width="16" height="24" viewBox="0 0 16 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- flame outer -->
+  <rect x="6" y="0" width="4" height="2" fill="#ffcc00"/>
+  <rect x="5" y="2" width="6" height="2" fill="#ffaa00"/>
+  <rect x="6" y="4" width="4" height="2" fill="#ff8800"/>
+  <rect x="7" y="6" width="2" height="2" fill="#ff6600"/>
+  <!-- flame inner -->
+  <rect x="7" y="1" width="2" height="2" fill="#ffffff"/>
+  <rect x="7" y="3" width="2" height="2" fill="#ffee88"/>
+  <!-- wick -->
+  <rect x="7" y="7" width="2" height="2" fill="#222222"/>
+  <!-- wax body -->
+  <rect x="4" y="9" width="8" height="12" fill="#e8e0cc"/>
+  <!-- wax left shadow -->
+  <rect x="4" y="9" width="2" height="12" fill="#ccc4b0"/>
+  <!-- wax right shadow -->
+  <rect x="10" y="9" width="2" height="12" fill="#c8c0ac"/>
+  <!-- wax top highlight -->
+  <rect x="5" y="9" width="6" height="2" fill="#f4f0e4"/>
+  <!-- wax drip left -->
+  <rect x="4" y="13" width="2" height="2" fill="#d4ccb8"/>
+  <rect x="3" y="14" width="2" height="2" fill="#e8e0cc"/>
+  <rect x="3" y="16" width="2" height="2" fill="#ccc4b0"/>
+  <!-- wax drip right -->
+  <rect x="10" y="11" width="2" height="2" fill="#d4ccb8"/>
+  <rect x="11" y="12" width="2" height="3" fill="#e8e0cc"/>
+  <rect x="11" y="15" width="2" height="2" fill="#ccc4b0"/>
+  <!-- base / holder -->
+  <rect x="3" y="21" width="10" height="3" fill="#8a7a5a"/>
+  <rect x="3" y="21" width="10" height="1" fill="#aa9a7a"/>
+  <rect x="2" y="22" width="12" height="2" fill="#7a6a4a"/>
+</svg>

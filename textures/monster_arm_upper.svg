@@ -1,0 +1,47 @@
+<svg width="16" height="32" viewBox="0 0 16 32" xmlns="http://www.w3.org/2000/svg">
+  <!-- outline -->
+  <rect x="1" y="0" width="14" height="32" fill="#1a0000"/>
+  <rect x="0" y="1" width="16" height="30" fill="#1a0000"/>
+
+  <!-- main arm fill -->
+  <rect x="2" y="1" width="12" height="30" fill="#cc1111"/>
+  <rect x="1" y="2" width="14" height="28" fill="#cc1111"/>
+
+  <!-- left shadow -->
+  <rect x="1" y="2" width="3" height="28" fill="#aa0a0a"/>
+  <!-- right shadow -->
+  <rect x="12" y="2" width="3" height="28" fill="#880808"/>
+
+  <!-- shoulder joint (top) -->
+  <rect x="2" y="1" width="12" height="5" fill="#dd1818"/>
+  <rect x="3" y="1" width="10" height="2" fill="#ee2222"/>
+  <!-- shoulder bump -->
+  <rect x="5" y="0" width="6" height="2" fill="#cc1515"/>
+  <rect x="6" y="0" width="4" height="1" fill="#dd2020"/>
+
+  <!-- elbow joint (bottom) - darker, knobbly -->
+  <rect x="2" y="26" width="12" height="5" fill="#990a0a"/>
+  <rect x="1" y="28" width="14" height="3" fill="#880808"/>
+  <rect x="3" y="27" width="10" height="2" fill="#aa0e0e"/>
+  <!-- elbow knob left -->
+  <rect x="0" y="27" width="3" height="4" fill="#991010"/>
+  <rect x="0" y="28" width="2" height="2" fill="#bb1212"/>
+  <!-- elbow knob right -->
+  <rect x="13" y="27" width="3" height="4" fill="#771010"/>
+  <rect x="14" y="28" width="2" height="2" fill="#991010"/>
+
+  <!-- muscle ridge center -->
+  <rect x="7" y="6" width="2" height="20" fill="#bb1010"/>
+  <rect x="7" y="8" width="2" height="16" fill="#aa0e0e"/>
+
+  <!-- vein left -->
+  <rect x="4" y="8" width="1" height="14" fill="#991010"/>
+  <rect x="4" y="14" width="2" height="2" fill="#880e0e"/>
+  <!-- vein right -->
+  <rect x="11" y="10" width="1" height="12" fill="#771010"/>
+
+  <!-- skin texture -->
+  <rect x="5" y="12" width="2" height="2" fill="#bb1212"/>
+  <rect x="9" y="18" width="2" height="2" fill="#991010"/>
+  <rect x="5" y="22" width="2" height="2" fill="#bb1212"/>
+</svg>

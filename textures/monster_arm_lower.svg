@@ -1,0 +1,82 @@
+<svg width="16" height="40" viewBox="0 0 16 40" xmlns="http://www.w3.org/2000/svg">
+  <!-- outline base -->
+  <rect x="1" y="0" width="14" height="32" fill="#1a0000"/>
+  <rect x="0" y="1" width="16" height="30" fill="#1a0000"/>
+
+  <!-- main forearm -->
+  <rect x="2" y="1" width="12" height="30" fill="#cc1111"/>
+  <rect x="1" y="2" width="14" height="28" fill="#cc1111"/>
+
+  <!-- left shadow -->
+  <rect x="1" y="2" width="3" height="28" fill="#aa0a0a"/>
+  <!-- right shadow -->
+  <rect x="12" y="2" width="3" height="28" fill="#880808"/>
+
+  <!-- elbow cap (top) -->
+  <rect x="2" y="1" width="12" height="4" fill="#990a0a"/>
+  <rect x="3" y="1" width="10" height="2" fill="#aa0e0e"/>
+
+  <!-- wrist narrowing -->
+  <rect x="1" y="24" width="1" height="6" fill="#1a0000"/>
+  <rect x="14" y="24" width="1" height="6" fill="#1a0000"/>
+  <rect x="3" y="25" width="10" height="5" fill="#bb1010"/>
+  <rect x="2" y="26" width="12" height="4" fill="#bb1010"/>
+
+  <!-- vein -->
+  <rect x="4" y="6" width="1" height="16" fill="#991010"/>
+  <rect x="4" y="12" width="2" height="2" fill="#881010"/>
+  <rect x="11" y="8" width="1" height="14" fill="#771010"/>
+
+  <!-- muscle ridge -->
+  <rect x="7" y="4" width="2" height="20" fill="#bb1010"/>
+
+  <!-- skin texture -->
+  <rect x="5" y="10" width="2" height="2" fill="#bb1212"/>
+  <rect x="9" y="16" width="2" height="2" fill="#991010"/>
+  <rect x="5" y="20" width="2" height="2" fill="#bb1212"/>
+
+  <!-- HAND / palm -->
+  <rect x="1" y="30" width="14" height="6" fill="#1a0000"/>
+  <rect x="2" y="30" width="12" height="6" fill="#bb1010"/>
+  <rect x="3" y="30" width="10" height="5" fill="#cc1111"/>
+  <!-- palm highlight -->
+  <rect x="4" y="30" width="8" height="2" fill="#dd1818"/>
+  <!-- palm dark center -->
+  <rect x="6" y="32" width="4" height="2" fill="#991010"/>
+
+  <!-- CLAWS (5 fingers with sharp tips) -->
+  <!-- claw 1 far left -->
+  <rect x="0" y="36" width="3" height="4" fill="#bb1010"/>
+  <rect x="0" y="36" width="3" height="1" fill="#1a0000"/>
+  <rect x="1" y="37" width="1" height="3" fill="#ddccaa"/>
+  <rect x="0" y="39" width="3" height="1" fill="#1a0000"/>
+  <rect x="1" y="38" width="1" height="2" fill="#ccbb99"/>
+
+  <!-- claw 2 -->
+  <rect x="3" y="36" width="3" height="4" fill="#bb1010"/>
+  <rect x="3" y="36" width="3" height="1" fill="#1a0000"/>
+  <rect x="4" y="37" width="1" height="3" fill="#ddccaa"/>
+  <rect x="3" y="39" width="3" height="1" fill="#1a0000"/>
+  <rect x="4" y="38" width="1" height="2" fill="#ccbb99"/>
+
+  <!-- claw 3 center (longest) -->
+  <rect x="6" y="36" width="4" height="5" fill="#cc1111"/>
+  <rect x="6" y="36" width="4" height="1" fill="#1a0000"/>
+  <rect x="7" y="37" width="2" height="4" fill="#ddccaa"/>
+  <rect x="6" y="40" width="4" height="1" fill="#1a0000"/>
+  <rect x="7" y="39" width="2" height="2" fill="#ccbb99"/>
+
+  <!-- claw 4 -->
+  <rect x="10" y="36" width="3" height="4" fill="#bb1010"/>
+  <rect x="10" y="36" width="3" height="1" fill="#1a0000"/>
+  <rect x="11" y="37" width="1" height="3" fill="#ddccaa"/>
+  <rect x="10" y="39" width="3" height="1" fill="#1a0000"/>
+  <rect x="11" y="38" width="1" height="2" fill="#ccbb99"/>
+
+  <!-- claw 5 far right -->
+  <rect x="13" y="36" width="3" height="4" fill="#bb1010"/>
+  <rect x="13" y="36" width="3" height="1" fill="#1a0000"/>
+  <rect x="14" y="37" width="1" height="3" fill="#ddccaa"/>
+  <rect x="13" y="39" width="3" height="1" fill="#1a0000"/>
+  <rect x="14" y="38" width="1" height="2" fill="#ccbb99"/>
+</svg>
