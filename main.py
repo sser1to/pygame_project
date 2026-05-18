@@ -29,11 +29,16 @@ ITEM_OUTLINE_COLOR = (80, 140, 200)
 
 DARK_TILE_FRACTION = 0.18
 DARK_SAFE_RADIUS = 4
-DARK_OVERLAY_ALPHA = 180
-DARK_OVERLAY_ALPHA_LIT = 90
+DARK_OVERLAY_ALPHA = 220
 DARK_BLOB_COUNT = 2
 DARK_BLOB_MIN_SIZE = 30
 CANDLE_LIGHT_RADIUS = 1
+
+SPOTLIGHT_RADIUS = 1
+SPOTLIGHT_FEATHER = 40
+SPOTLIGHT_ALPHA = 210
+PLAYER_LIGHT_ALPHA = 40
+CANDLE_LIGHT_ALPHA = 0
 
 FREEZE_ENABLED = True
 COLD_MAX = 100.0
@@ -339,7 +344,7 @@ def adjacent_tiles(tile):
     return [(tx + 1, ty), (tx - 1, ty), (tx, ty + 1), (tx, ty - 1)]
 
 
-def get_light_tiles(dark_tiles, center_tile, radius):
+def get_light_tiles(center_tile, radius):
     if radius <= 0:
         return set()
     cx, cy = center_tile
@@ -349,19 +354,34 @@ def get_light_tiles(dark_tiles, center_tile, radius):
             if max(abs(dx), abs(dy)) > radius:
                 continue
             tile = (cx + dx, cy + dy)
-            if tile in dark_tiles:
-                light_tiles.add(tile)
+            light_tiles.add(tile)
     return light_tiles
 
 
-def get_candle_light_tiles(dark_tiles, items, player):
+def get_candle_light_tiles(items, player):
     light_tiles = set()
     if player.carrying == ITEM_CANDLE:
-        light_tiles.update(get_light_tiles(dark_tiles, get_player_tile(player), CANDLE_LIGHT_RADIUS))
+        light_tiles.update(get_light_tiles(get_player_tile(player), CANDLE_LIGHT_RADIUS))
     for item in items:
         if item.kind == ITEM_CANDLE:
-            light_tiles.update(get_light_tiles(dark_tiles, item.tile, CANDLE_LIGHT_RADIUS))
+            light_tiles.update(get_light_tiles(item.tile, CANDLE_LIGHT_RADIUS))
     return light_tiles
+
+
+def get_candle_centers(player, items):
+    centers = []
+    if player.carrying == ITEM_CANDLE:
+        centers.append((player.rect.centerx, player.rect.centery))
+    for item in items:
+        if item.kind != ITEM_CANDLE:
+            continue
+        centers.append(
+            (
+                item.tile[0] * TILE_SIZE + TILE_SIZE // 2,
+                item.tile[1] * TILE_SIZE + TILE_SIZE // 2,
+            )
+        )
+    return centers
 
 
 def get_item_at(items, tile):
@@ -497,14 +517,22 @@ def draw_carried_item(screen, player, assets, offset):
     screen.blit(sprite, (world_x - offset.x, world_y - offset.y))
 
 
-def draw_darkness(screen, dark_tiles, overlay, lit_overlay, lit_tiles, offset):
+def draw_darkness(screen, dark_tiles, overlay, candle_centers, offset):
+    darkness = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
     for tx, ty in dark_tiles:
-        world_x = tx * TILE_SIZE
-        world_y = ty * TILE_SIZE
-        if (tx, ty) in lit_tiles:
-            screen.blit(lit_overlay, (world_x - offset.x, world_y - offset.y))
-        else:
-            screen.blit(overlay, (world_x - offset.x, world_y - offset.y))
+        world_x = tx * TILE_SIZE - offset.x
+        world_y = ty * TILE_SIZE - offset.y
+        darkness.blit(overlay, (world_x, world_y))
+
+    candle_radius = int((CANDLE_LIGHT_RADIUS + 0.5) * TILE_SIZE)
+    for candle_center in candle_centers:
+        screen_pos = (
+            int(candle_center[0] - offset.x),
+            int(candle_center[1] - offset.y),
+        )
+        pygame.draw.circle(darkness, (0, 0, 0, 0), screen_pos, candle_radius)
+
+    screen.blit(darkness, (0, 0))
 
 
 def draw_cold_bar(screen, cold_value):
@@ -527,6 +555,31 @@ def draw_hunger_bar(screen, hunger_value):
     fill_width = int(bar_width * (hunger_value / HUNGER_MAX))
     pygame.draw.rect(screen, (255, 160, 80), (x, y, fill_width, bar_height))
     pygame.draw.rect(screen, (230, 230, 230), (x, y, bar_width, bar_height), 1)
+
+
+def draw_spotlight(screen, player, candle_centers, camera):
+    overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, SPOTLIGHT_ALPHA))
+
+    center = (
+        int(player.rect.centerx - camera.x),
+        int(player.rect.centery - camera.y),
+    )
+    for step in range(4):
+        radius = SPOTLIGHT_RADIUS + step * (SPOTLIGHT_FEATHER // 3)
+        alpha = max(0, SPOTLIGHT_ALPHA - (step + 1) * (SPOTLIGHT_ALPHA // 5))
+        pygame.draw.circle(overlay, (0, 0, 0, alpha), center, radius)
+    pygame.draw.circle(overlay, (0, 0, 0, PLAYER_LIGHT_ALPHA), center, SPOTLIGHT_RADIUS)
+
+    candle_radius = int((CANDLE_LIGHT_RADIUS + 0.5) * TILE_SIZE)
+    for candle_center in candle_centers:
+        screen_pos = (
+            int(candle_center[0] - camera.x),
+            int(candle_center[1] - camera.y),
+        )
+        pygame.draw.circle(overlay, (0, 0, 0, CANDLE_LIGHT_ALPHA), screen_pos, candle_radius)
+
+    screen.blit(overlay, (0, 0))
 
 
 def main():
@@ -570,8 +623,6 @@ def main():
     items = spawn_items(grid, spawn_tile)
     dark_overlay = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
     dark_overlay.fill((0, 0, 0, DARK_OVERLAY_ALPHA))
-    dark_overlay_lit = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
-    dark_overlay_lit.fill((0, 0, 0, DARK_OVERLAY_ALPHA_LIT))
     cold_value = 0.0
     hunger_value = 0.0
     dead = False
@@ -604,7 +655,8 @@ def main():
         camera = compute_camera(player.rect, map_size_px)
 
         player_tile = get_player_tile(player)
-        light_tiles = get_candle_light_tiles(dark_tiles, items, player)
+        light_tiles = get_candle_light_tiles(items, player)
+        candle_centers = get_candle_centers(player, items)
 
         if FREEZE_ENABLED:
             in_dark = player_tile in dark_tiles and player_tile not in light_tiles
@@ -624,9 +676,10 @@ def main():
         screen.fill((10, 10, 14))
         draw_map(screen, grid, assets, camera)
         draw_items(screen, items, item_assets, camera)
-        draw_darkness(screen, dark_tiles, dark_overlay, dark_overlay_lit, light_tiles, camera)
         player.draw(screen, camera)
         draw_carried_item(screen, player, item_assets, camera)
+        draw_spotlight(screen, player, candle_centers, camera)
+        draw_darkness(screen, dark_tiles, dark_overlay, candle_centers, camera)
         draw_item_outlines(screen, items, item_assets, item_outlines, camera, player)
         if FREEZE_ENABLED:
             draw_cold_bar(screen, cold_value)
