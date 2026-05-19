@@ -12,6 +12,11 @@
       "hunger": false,
       "darkness_amount": 0
     },
+    "items": {
+      "candles": 1,
+      "stones": 0,
+      "food": 0
+    },
     "objectives": {
       "coal": 3,
       "levers": 0
@@ -29,6 +34,11 @@
       "freezing": false,
       "hunger": false,
       "darkness_amount": 0
+    },
+    "items": {
+      "candles": 1,
+      "stones": 0,
+      "food": 0
     },
     "objectives": {
       "coal": 4,
@@ -48,6 +58,11 @@
       "hunger": false,
       "darkness_amount": 1
     },
+    "items": {
+      "candles": 1,
+      "stones": 0,
+      "food": 0
+    },
     "objectives": {
       "coal": 5,
       "levers": 2
@@ -59,12 +74,17 @@
       "smell": true,
       "hearing": true,
       "vision": true,
-      "cloning": 0
+      "cloning": 1
     },
     "debuffs": {
       "freezing": true,
       "hunger": false,
-      "darkness_amount": 1
+      "darkness_amount": 3
+    },
+    "items": {
+      "candles": 1,
+      "stones": 3,
+      "food": 0
     },
     "objectives": {
       "coal": 5,
@@ -84,6 +104,11 @@
       "hunger": false,
       "darkness_amount": 1
     },
+    "items": {
+      "candles": 1,
+      "stones": 0,
+      "food": 0
+    },
     "objectives": {
       "coal": 6,
       "levers": 3
@@ -102,6 +127,11 @@
       "hunger": true,
       "darkness_amount": 1
     },
+    "items": {
+      "candles": 1,
+      "stones": 0,
+      "food": 0
+    },
     "objectives": {
       "coal": 7,
       "levers": 3
@@ -119,6 +149,11 @@
       "freezing": true,
       "hunger": true,
       "darkness_amount": 1
+    },
+    "items": {
+      "candles": 1,
+      "stones": 0,
+      "food": 0
     },
     "objectives": {
       "coal": 0,

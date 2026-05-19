@@ -1,4 +1,5 @@
 import io
+import json
 import math
 import random
 from pathlib import Path
@@ -11,7 +12,8 @@ SCREEN_HEIGHT = 720
 
 MAP_PATH = Path(__file__).with_name("map.txt")
 TEXTURES_DIR = Path(__file__).with_name("textures")
-
+LEVELS_PATH = Path(__file__).with_name("levels.json")
+CURRENT_LEVEL = 4
 TILE_FLOOR = 1
 TILE_WALL = 2
 TILE_WALL_TOP = 3
@@ -22,7 +24,7 @@ ITEM_COAL = "coal"
 ITEM_CANDLE = "candle"
 ITEM_APPLE = "apple"
 ITEM_LEVER = "lever"
-ITEM_TYPES = [ITEM_COAL, ITEM_CANDLE, ITEM_APPLE, ITEM_LEVER]
+ITEM_STONE = "stone"
 
 ITEM_DRAW_SCALE = 0.6
 ITEM_OUTLINE_COLOR = (80, 140, 200)
@@ -37,16 +39,17 @@ SHADOW_BLUR_PASSES = 3
 SHADOW_CORNER_RADIUS = 14
 SHADOW_PAD = 8
 
-SPOTLIGHT_RADIUS = 1
-SPOTLIGHT_FEATHER = 40
+SPOTLIGHT_RADIUS = 40
+SPOTLIGHT_FEATHER = 0
 SPOTLIGHT_ALPHA = 210
-PLAYER_LIGHT_ALPHA = 40
-CANDLE_LIGHT_ALPHA = 0
+PLAYER_LIGHT_ALPHA = 135
+CANDLE_LIGHT_ALPHA = 115
 
 MONSTER_SMELL_INTERVAL = 5.0
 MONSTER_SMELL_RANGE_TILES = 10
-MONSTER_SMELL_SPEED = 260
-MONSTER_PASSIVE_SPEED = 120
+MONSTER_SMELL_SPEED = 190
+MONSTER_PASSIVE_SPEED = 100
+MONSTER_HEARING_RANGE_TILES = 20
 MONSTER_STOP_DISTANCE = 8
 MONSTER_HEAD_SCALE = 1.2
 MONSTER_ARM_UPPER_SCALE_X = 1.7
@@ -54,6 +57,7 @@ MONSTER_ARM_UPPER_SCALE_Y = 0.35
 MONSTER_ARM_LOWER_SCALE_X = 1.5
 MONSTER_ARM_LOWER_SCALE_Y = 0.3
 MONSTER_SPAWN_SAFE_RADIUS = 8
+MONSTER_SPAWN_MIN_DISTANCE = 6
 MONSTER_PATROL_COUNT = 14
 MONSTER_PATROL_SAMPLE_SIZE = 200
 MONSTER_GRAB_RADIUS_TILES = 4
@@ -61,6 +65,8 @@ MONSTER_STEP_SPEED = 1.6
 MONSTER_GRAB_SWAY = 0.06
 MONSTER_ANCHOR_LERP = 0.08
 MONSTER_TINT = (70, 70, 70)
+
+STONE_THROW_SPEED = 520
 
 FREEZE_ENABLED = True
 COLD_MAX = 100.0
@@ -93,6 +99,20 @@ def load_map(path):
         if len(row) < width:
             row.extend([0] * (width - len(row)))
     return rows
+
+
+def load_levels(path):
+    if not path.exists():
+        return []
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def get_level_config(levels, level_number):
+    for level in levels:
+        if level.get("level") == level_number:
+            return level
+    return {}
 
 
 def find_spawn_tile(grid):
@@ -130,7 +150,9 @@ def grow_dark_blob(seed, target_size, available):
     return blob
 
 
-def build_dark_tiles(grid, spawn_tile):
+def build_dark_tiles(grid, spawn_tile, darkness_amount):
+    if darkness_amount <= 0:
+        return set()
     floor_tiles = collect_floor_tiles(grid)
     safe_tiles = [
         tile
@@ -139,7 +161,10 @@ def build_dark_tiles(grid, spawn_tile):
     ]
     if not safe_tiles:
         return set()
-    total = max(1, int(len(safe_tiles) * DARK_TILE_FRACTION))
+    fraction = DARK_TILE_FRACTION * max(0, darkness_amount)
+    total = int(len(safe_tiles) * fraction)
+    if total <= 0:
+        return set()
     total = min(total, len(safe_tiles))
     blob_count = min(DARK_BLOB_COUNT, max(1, total // DARK_BLOB_MIN_SIZE))
     remaining = total
@@ -304,8 +329,13 @@ class Monster:
         self.head = assets["head"]
         self.arm_upper = assets["arm_upper"]
         self.arm_lower = assets["arm_lower"]
+        self.rng = random.Random(random.random())
         self.smell_timer = 0.0
         self.target = None
+        self.vision_timer = 0.0
+        self.last_seen = None
+        self.hearing_target = None
+        self.smell_target = None
         self.patrol_points = [pygame.Vector2(p) for p in patrol_points]
         self.patrol_index = 0
         self.passive_target = None
@@ -313,29 +343,83 @@ class Monster:
         self.step_time = 0.0
         self.left_anchor = None
         self.right_anchor = None
+        self.chase_speed = MONSTER_SMELL_SPEED * self.rng.uniform(0.95, 1.05)
+        self.passive_speed = MONSTER_PASSIVE_SPEED * self.rng.uniform(0.9, 1.1)
+        self.step_speed = MONSTER_STEP_SPEED * self.rng.uniform(0.9, 1.1)
+        self.grab_sway = MONSTER_GRAB_SWAY * self.rng.uniform(0.85, 1.15)
+        self.smell_interval = MONSTER_SMELL_INTERVAL * self.rng.uniform(0.85, 1.15)
+        self.vision_memory = 2.0 * self.rng.uniform(0.8, 1.2)
+        self.target_offset = pygame.Vector2(
+            self.rng.uniform(-12, 12),
+            self.rng.uniform(-12, 12),
+        )
+        if self.patrol_points:
+            self.patrol_index = self.rng.randrange(len(self.patrol_points))
 
-    def update(self, dt, player_pos, grid):
-        self.smell_timer += dt
-        if self.smell_timer >= MONSTER_SMELL_INTERVAL:
-            self.smell_timer = 0.0
-            distance = (pygame.Vector2(player_pos) - self.pos).length()
-            if distance <= MONSTER_SMELL_RANGE_TILES * TILE_SIZE:
-                self.target = pygame.Vector2(player_pos)
-                self.passive_target = None
+    def update(self, dt, player_pos, grid, sound_events, hearing_enabled, smell_enabled, vision_enabled):
+        player_vec = pygame.Vector2(player_pos)
 
-        if self.target is not None:
-            to_target = self.target - self.pos
+        if not hearing_enabled:
+            self.hearing_target = None
+        if not smell_enabled:
+            self.smell_target = None
+        if not vision_enabled:
+            self.vision_timer = 0.0
+            self.last_seen = None
+
+        if vision_enabled and has_line_of_sight(grid, self.pos, player_vec):
+            self.last_seen = player_vec + self.target_offset
+            self.vision_timer = self.vision_memory
+        elif self.vision_timer > 0.0:
+            self.vision_timer = max(0.0, self.vision_timer - dt)
+            if self.vision_timer == 0.0:
+                self.last_seen = None
+
+        if hearing_enabled and sound_events:
+            closest_event = None
+            closest_dist = None
+            for event_pos in sound_events:
+                dist = (event_pos - self.pos).length()
+                if dist <= MONSTER_HEARING_RANGE_TILES * TILE_SIZE:
+                    if closest_event is None or dist < closest_dist:
+                        closest_event = event_pos
+                        closest_dist = dist
+            if closest_event is not None:
+                self.hearing_target = pygame.Vector2(closest_event) + self.target_offset
+
+        if smell_enabled:
+            self.smell_timer += dt
+            if self.smell_timer >= self.smell_interval:
+                self.smell_timer = 0.0
+                distance = (player_vec - self.pos).length()
+                if distance <= MONSTER_SMELL_RANGE_TILES * TILE_SIZE:
+                    self.smell_target = player_vec + self.target_offset
+
+        active_target = None
+        active_speed = None
+        if self.last_seen is not None and self.vision_timer > 0.0:
+            active_target = self.last_seen
+            active_speed = self.chase_speed
+        elif self.hearing_target is not None:
+            active_target = self.hearing_target
+            active_speed = self.chase_speed
+        elif self.smell_target is not None:
+            active_target = self.smell_target
+            active_speed = self.chase_speed
+
+        self.moving = False
+        if active_target is not None:
+            to_target = active_target - self.pos
             if to_target.length_squared() <= MONSTER_STOP_DISTANCE * MONSTER_STOP_DISTANCE:
-                self.target = None
-                self.moving = False
+                if active_target == self.hearing_target:
+                    self.hearing_target = None
+                if active_target == self.smell_target:
+                    self.smell_target = None
             else:
                 direction = to_target.normalize()
-                self.pos += direction * MONSTER_SMELL_SPEED * dt
+                self.pos += direction * active_speed * dt
                 self.moving = True
         else:
-            self.moving = False
-
-        if self.target is None:
             if self.passive_target is None:
                 self.passive_target = self.next_patrol_target()
             if self.passive_target is not None:
@@ -344,10 +428,10 @@ class Monster:
                     self.passive_target = None
                 else:
                     direction = to_target.normalize()
-                    self.pos += direction * MONSTER_PASSIVE_SPEED * dt
+                    self.pos += direction * self.passive_speed * dt
                     self.moving = True
 
-        speed_factor = MONSTER_STEP_SPEED if self.moving else 1.0
+        speed_factor = self.step_speed if self.moving else 1.0
         self.step_time += dt * speed_factor
         self.update_anchors(grid)
 
@@ -418,7 +502,7 @@ class Monster:
         if direction.length_squared() == 0:
             return target_vec
         direction = direction.normalize()
-        offset = math.sin(self.step_time + phase) * (TILE_SIZE * MONSTER_GRAB_SWAY)
+        offset = math.sin(self.step_time + phase) * (TILE_SIZE * self.grab_sway)
         return target_vec + direction * offset
 
     def draw_arm(self, screen, offset, shoulder, target, bend_sign, flip_lower=False):
@@ -488,6 +572,35 @@ class Item:
         screen.blit(sprite, (world_x - offset.x, world_y - offset.y))
 
 
+class StoneProjectile:
+    def __init__(self, start_pos, end_pos, sprite, landing_tile):
+        self.start = pygame.Vector2(start_pos)
+        self.end = pygame.Vector2(end_pos)
+        self.sprite = sprite
+        self.landing_tile = landing_tile
+        self.elapsed = 0.0
+        distance = (self.end - self.start).length()
+        self.duration = max(0.12, distance / STONE_THROW_SPEED)
+        self.pos = pygame.Vector2(self.start)
+        self.done = False
+
+    def update(self, dt):
+        if self.done:
+            return
+        self.elapsed += dt
+        t = min(1.0, self.elapsed / self.duration)
+        self.pos = self.start.lerp(self.end, t)
+        if t >= 1.0:
+            self.done = True
+
+    def draw(self, screen, offset):
+        if self.pos is None:
+            return
+        world_x = self.pos.x - self.sprite.get_width() / 2
+        world_y = self.pos.y - self.sprite.get_height() / 2
+        screen.blit(self.sprite, (world_x - offset.x, world_y - offset.y))
+
+
 def get_item_sprite(item, assets):
     if item.kind == ITEM_LEVER:
         return assets["lever_on"] if item.active else assets["lever_off"]
@@ -514,15 +627,30 @@ def build_item_outlines(item_assets, color):
     return outlines
 
 
-def spawn_items(grid, spawn_tile):
+def spawn_items(grid, spawn_tile, items_counts, objectives):
     floor_tiles = collect_floor_tiles(grid)
     available = [tile for tile in floor_tiles if tile != spawn_tile]
     random.shuffle(available)
     items = []
-    for kind in ITEM_TYPES:
-        if not available:
-            break
-        items.append(Item(kind, available.pop()))
+
+    candle_count = items_counts.get("candles", 1)
+    stone_count = items_counts.get("stones", 0)
+    food_count = items_counts.get("food", 0)
+    coal_count = objectives.get("coal", 0)
+    lever_count = objectives.get("levers", 0)
+    spawn_plan = [
+        (ITEM_COAL, coal_count),
+        (ITEM_CANDLE, candle_count),
+        (ITEM_APPLE, food_count),
+        (ITEM_LEVER, lever_count),
+        (ITEM_STONE, stone_count),
+    ]
+
+    for kind, count in spawn_plan:
+        for _ in range(count):
+            if not available:
+                break
+            items.append(Item(kind, available.pop()))
     return items
 
 
@@ -569,6 +697,44 @@ def pick_monster_spawn(grid, player_tile):
     return random.choice(far_tiles)
 
 
+def pick_monster_spawns(grid, player_tile, count):
+    if count <= 0:
+        return []
+    floor_tiles = collect_floor_tiles(grid)
+    candidates = [
+        tile
+        for tile in floor_tiles
+        if abs(tile[0] - player_tile[0]) + abs(tile[1] - player_tile[1]) > MONSTER_SPAWN_SAFE_RADIUS
+    ]
+    if not candidates:
+        candidates = floor_tiles[:]
+
+    rng = random.Random()
+    rng.shuffle(candidates)
+    spawns = []
+
+    def far_enough(tile):
+        return all(
+            abs(tile[0] - other[0]) + abs(tile[1] - other[1]) >= MONSTER_SPAWN_MIN_DISTANCE
+            for other in spawns
+        )
+
+    for tile in candidates:
+        if len(spawns) >= count:
+            break
+        if far_enough(tile):
+            spawns.append(tile)
+
+    if len(spawns) < count:
+        for tile in candidates:
+            if len(spawns) >= count:
+                break
+            if tile not in spawns:
+                spawns.append(tile)
+
+    return spawns[:count]
+
+
 def get_wall_tiles_near(grid, center_tile, radius):
     rows = len(grid)
     cols = len(grid[0])
@@ -578,6 +744,44 @@ def get_wall_tiles_near(grid, center_tile, radius):
             if grid[ty][tx] in (TILE_WALL, TILE_WALL_TOP):
                 tiles.append((tx, ty))
     return tiles
+
+
+def tile_blocks_vision(grid, tile):
+    if not tile_in_bounds(grid, tile):
+        return True
+    return grid[tile[1]][tile[0]] in (TILE_WALL, TILE_WALL_TOP, TILE_FURNACE)
+
+
+def bresenham_line(start_tile, end_tile):
+    x0, y0 = start_tile
+    x1, y1 = end_tile
+    dx = abs(x1 - x0)
+    dy = -abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    err = dx + dy
+    while True:
+        yield (x0, y0)
+        if x0 == x1 and y0 == y1:
+            break
+        e2 = 2 * err
+        if e2 >= dy:
+            err += dy
+            x0 += sx
+        if e2 <= dx:
+            err += dx
+            y0 += sy
+
+
+def has_line_of_sight(grid, start_pos, end_pos):
+    start_tile = (int(start_pos[0] // TILE_SIZE), int(start_pos[1] // TILE_SIZE))
+    end_tile = (int(end_pos[0] // TILE_SIZE), int(end_pos[1] // TILE_SIZE))
+    for tile in bresenham_line(start_tile, end_tile):
+        if tile == start_tile or tile == end_tile:
+            continue
+        if tile_blocks_vision(grid, tile):
+            return False
+    return True
 
 
 def pick_arm_targets(wall_tiles, monster_pos):
@@ -691,17 +895,77 @@ def get_item_at(items, tile):
     return None
 
 
-def handle_interaction(player, items, grid):
-    player_tile = get_player_tile(player)
-    if player.carrying:
-        offset = direction_to_offset(player.last_dir)
-        if offset == (0, 0):
-            return False
-        target = (player_tile[0] + offset[0], player_tile[1] + offset[1])
-        if tile_is_placeable(grid, target) and get_item_at(items, target) is None:
-            items.append(Item(player.carrying, target))
-            player.carrying = None
+def emit_sound(sound_events, tile):
+    sound_events.append(pygame.Vector2(tile_to_world_center(tile)))
+
+
+def tile_is_furnace(grid, tile):
+    if not tile_in_bounds(grid, tile):
         return False
+    tx, ty = tile
+    return grid[ty][tx] == TILE_FURNACE
+
+
+def get_furnace_rect(grid, tile):
+    tx, ty = tile
+    if not tile_in_bounds(grid, tile) or grid[ty][tx] != TILE_FURNACE:
+        return None
+    left_tx = tx
+    if tile_in_bounds(grid, (tx - 1, ty)) and grid[ty][tx - 1] == TILE_FURNACE:
+        left_tx = tx - 1
+    width = TILE_SIZE * (2 if tile_in_bounds(grid, (left_tx + 1, ty)) and grid[ty][left_tx + 1] == TILE_FURNACE else 1)
+    return pygame.Rect(left_tx * TILE_SIZE, ty * TILE_SIZE, width, TILE_SIZE)
+
+
+def throw_stone(grid, items, start_tile, direction):
+    last_valid = start_tile
+    for step in range(1, 4):
+        tile = (start_tile[0] + direction[0] * step, start_tile[1] + direction[1] * step)
+        if not tile_in_bounds(grid, tile):
+            break
+        if grid[tile[1]][tile[0]] in (TILE_WALL, TILE_WALL_TOP, TILE_FURNACE):
+            break
+        if get_item_at(items, tile) is not None:
+            break
+        last_valid = tile
+
+    if last_valid == start_tile and get_item_at(items, last_valid) is not None:
+        return None
+    return last_valid
+
+
+def handle_interaction(player, items, grid, sound_events, stone_projectiles, stone_sprite):
+    player_tile = get_player_tile(player)
+    offset = direction_to_offset(player.last_dir)
+    target_tile = (player_tile[0] + offset[0], player_tile[1] + offset[1]) if offset != (0, 0) else None
+    if player.carrying:
+        if offset == (0, 0):
+            return False, False
+        if player.carrying == ITEM_COAL and target_tile and tile_is_furnace(grid, target_tile):
+            player.carrying = None
+            emit_sound(sound_events, target_tile)
+            return False, True
+        if player.carrying == ITEM_STONE:
+            landing_tile = throw_stone(grid, items, player_tile, offset)
+            if landing_tile is not None:
+                if landing_tile == player_tile:
+                    items.append(Item(ITEM_STONE, landing_tile))
+                    emit_sound(sound_events, landing_tile)
+                else:
+                    stone_projectiles.append(
+                        StoneProjectile(
+                            player.rect.center,
+                            tile_to_world_center(landing_tile),
+                            stone_sprite,
+                            landing_tile,
+                        )
+                    )
+            player.carrying = None
+            return False, False
+        if target_tile and tile_is_placeable(grid, target_tile) and get_item_at(items, target_tile) is None:
+            items.append(Item(player.carrying, target_tile))
+            player.carrying = None
+        return False, False
 
     candidate_tiles = [player_tile] + adjacent_tiles(player_tile)
     for tile in candidate_tiles:
@@ -712,14 +976,15 @@ def handle_interaction(player, items, grid):
             if item.active:
                 continue
             item.active = True
+            emit_sound(sound_events, tile)
         elif item.kind == ITEM_APPLE:
             items.remove(item)
-            return True
+            return True, False
         else:
             player.carrying = item.kind
             items.remove(item)
-        return False
-    return False
+        return False, False
+    return False, False
 
 
 def compute_camera(player_rect, map_size_px):
@@ -808,6 +1073,26 @@ def draw_item_outlines(screen, items, assets, outlines, offset, player):
     screen.blit(outline, (world_x - offset.x, world_y - offset.y))
 
 
+def draw_furnace_outline(screen, grid, player, offset):
+    if player.carrying != ITEM_COAL:
+        return
+    offset_dir = direction_to_offset(player.last_dir)
+    if offset_dir == (0, 0):
+        return
+    player_tile = get_player_tile(player)
+    target = (player_tile[0] + offset_dir[0], player_tile[1] + offset_dir[1])
+    rect = get_furnace_rect(grid, target)
+    if rect is None:
+        return
+    outline_rect = pygame.Rect(
+        rect.x - offset.x,
+        rect.y - offset.y,
+        rect.width,
+        rect.height,
+    )
+    pygame.draw.rect(screen, ITEM_OUTLINE_COLOR, outline_rect, 2)
+
+
 def draw_carried_item(screen, player, assets, offset):
     if not player.carrying:
         return
@@ -815,6 +1100,11 @@ def draw_carried_item(screen, player, assets, offset):
     world_x = player.rect.centerx - sprite.get_width() // 2
     world_y = player.rect.centery - sprite.get_height() // 2
     screen.blit(sprite, (world_x - offset.x, world_y - offset.y))
+
+
+def draw_projectiles(screen, projectiles, offset):
+    for projectile in projectiles:
+        projectile.draw(screen, offset)
 
 
 def draw_darkness(screen, dark_tiles, overlay, candle_centers, offset):
@@ -918,6 +1208,7 @@ def main():
         ITEM_COAL: load_svg_surface(TEXTURES_DIR / "coal.svg", (item_size, item_size)),
         ITEM_CANDLE: load_svg_surface(TEXTURES_DIR / "candle.svg", (item_size, item_size)),
         ITEM_APPLE: load_svg_surface(TEXTURES_DIR / "apple.svg", (item_size, item_size)),
+        ITEM_STONE: load_svg_surface(TEXTURES_DIR / "stone.svg", (item_size, item_size)),
         "lever_off": load_svg_surface(TEXTURES_DIR / "lever_off.svg", (item_size, item_size)),
         "lever_on": load_svg_surface(TEXTURES_DIR / "lever_on.svg", (item_size, item_size)),
     }
@@ -960,9 +1251,23 @@ def main():
         ),
     }
 
+    levels = load_levels(LEVELS_PATH)
+    level_config = get_level_config(levels, CURRENT_LEVEL)
+    items_config = level_config.get("items", {})
+    objectives_config = level_config.get("objectives", {})
+    debuffs_config = level_config.get("debuffs", {})
+    abilities_config = level_config.get("monster_abilities", {})
+    monster_hearing = abilities_config.get("hearing", False)
+    monster_smell = abilities_config.get("smell", False)
+    monster_vision = abilities_config.get("vision", False)
+    monster_cloning = max(0, int(abilities_config.get("cloning", 0)))
+    freeze_enabled = debuffs_config.get("freezing", False)
+    hunger_enabled = debuffs_config.get("hunger", False)
+    darkness_amount = debuffs_config.get("darkness_amount", 0)
+
     spawn_tile = find_spawn_tile(grid)
-    dark_tiles = build_dark_tiles(grid, spawn_tile)
-    items = spawn_items(grid, spawn_tile)
+    dark_tiles = build_dark_tiles(grid, spawn_tile, darkness_amount)
+    items = spawn_items(grid, spawn_tile, items_config, objectives_config)
     dark_overlay = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
     dark_overlay.fill((0, 0, 0, DARK_OVERLAY_ALPHA))
     cold_value = 0.0
@@ -971,17 +1276,23 @@ def main():
     start_x = spawn_tile[0] * TILE_SIZE + (TILE_SIZE - player_size) / 2
     start_y = spawn_tile[1] * TILE_SIZE + (TILE_SIZE - player_size) / 2
     player = Player((start_x, start_y), player_size, player_images)
-    monster_tile = pick_monster_spawn(grid, spawn_tile)
-    monster_pos = (
-        monster_tile[0] * TILE_SIZE + TILE_SIZE / 2,
-        monster_tile[1] * TILE_SIZE + TILE_SIZE / 2,
-    )
     patrol_points = build_patrol_points(grid, MONSTER_PATROL_COUNT, MONSTER_PATROL_SAMPLE_SIZE)
-    monster = Monster(monster_pos, monster_assets, patrol_points)
+    monster_count = 1 + monster_cloning
+    monster_tiles = pick_monster_spawns(grid, spawn_tile, monster_count)
+    monsters = []
+    for tile in monster_tiles:
+        monster_pos = (
+            tile[0] * TILE_SIZE + TILE_SIZE / 2,
+            tile[1] * TILE_SIZE + TILE_SIZE / 2,
+        )
+        monsters.append(Monster(monster_pos, monster_assets, patrol_points))
+    stone_projectiles = []
 
     running = True
     while running:
         dt = clock.tick(60) / 1000.0
+        sound_events = []
+        sound_events = []
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -995,46 +1306,71 @@ def main():
                 elif event.key == pygame.K_d:
                     player.last_dir = pygame.Vector2(1, 0)
                 elif event.key == pygame.K_RETURN and not dead:
-                    ate_apple = handle_interaction(player, items, grid)
+                    ate_apple, loaded_coal = handle_interaction(
+                        player,
+                        items,
+                        grid,
+                        sound_events,
+                        stone_projectiles,
+                        item_assets[ITEM_STONE],
+                    )
                     if ate_apple and HUNGER_ENABLED:
                         hunger_value = max(0.0, hunger_value - HUNGER_RESTORE)
 
         if not dead:
             player.update(dt, grid, map_size_px)
-            monster.update(dt, player.rect.center, grid)
+            for projectile in stone_projectiles[:]:
+                projectile.update(dt)
+                if projectile.done:
+                    items.append(Item(ITEM_STONE, projectile.landing_tile))
+                    emit_sound(sound_events, projectile.landing_tile)
+                    stone_projectiles.remove(projectile)
+            for monster in monsters:
+                monster.update(
+                    dt,
+                    player.rect.center,
+                    grid,
+                    sound_events,
+                    monster_hearing,
+                    monster_smell,
+                    monster_vision,
+                )
         camera = compute_camera(player.rect, map_size_px)
 
         player_tile = get_player_tile(player)
         light_tiles = get_candle_light_tiles(items, player)
         candle_centers = get_candle_centers(player, items)
 
-        if FREEZE_ENABLED:
+        if freeze_enabled:
             in_dark = player_tile in dark_tiles and player_tile not in light_tiles
             if in_dark:
                 cold_value = min(COLD_MAX, cold_value + COLD_RATE * dt)
             else:
                 cold_value = max(0.0, cold_value - COLD_RECOVERY_RATE * dt)
 
-        if HUNGER_ENABLED:
+        if hunger_enabled:
             hunger_value = min(HUNGER_MAX, hunger_value + HUNGER_RATE * dt)
 
-        if FREEZE_ENABLED and cold_value >= COLD_MAX:
+        if freeze_enabled and cold_value >= COLD_MAX:
             dead = True
-        if HUNGER_ENABLED and hunger_value >= HUNGER_MAX:
+        if hunger_enabled and hunger_value >= HUNGER_MAX:
             dead = True
 
         screen.fill((10, 10, 14))
         draw_map(screen, grid, assets, camera)
         draw_items(screen, items, item_assets, camera)
+        draw_projectiles(screen, stone_projectiles, camera)
         player.draw(screen, camera)
         draw_carried_item(screen, player, item_assets, camera)
         draw_spotlight(screen, player, candle_centers, camera)
         draw_darkness(screen, dark_tiles, dark_overlay, candle_centers, camera)
-        monster.draw(screen, camera)
+        for monster in monsters:
+            monster.draw(screen, camera)
         draw_item_outlines(screen, items, item_assets, item_outlines, camera, player)
-        if FREEZE_ENABLED:
+        draw_furnace_outline(screen, grid, player, camera)
+        if freeze_enabled:
             draw_cold_bar(screen, cold_value)
-        if HUNGER_ENABLED:
+        if hunger_enabled:
             draw_hunger_bar(screen, hunger_value)
         pygame.display.flip()
 
