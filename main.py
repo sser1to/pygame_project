@@ -12,8 +12,9 @@ SCREEN_HEIGHT = 720
 
 MAP_PATH = Path(__file__).with_name("map.txt")
 TEXTURES_DIR = Path(__file__).with_name("textures")
+SOUNDS_DIR = Path(__file__).with_name("sounds")
 LEVELS_PATH = Path(__file__).with_name("levels.json")
-CURRENT_LEVEL = 4
+CURRENT_LEVEL = 1
 LEVEL_COUNT = 7
 TILE_FLOOR = 1
 TILE_WALL = 2
@@ -52,6 +53,13 @@ CANDLE_LIGHT_RADIUS = 1
 SHADOW_BLUR_PASSES = 3
 SHADOW_CORNER_RADIUS = 14
 SHADOW_PAD = 8
+
+AMBIENT_VOLUME = 0.35
+CHASE_VOLUME = 0.55
+SFX_VOLUME = 0.7
+FOOTSTEP_VOLUME = 0.45
+MUSIC_FADE_MS = 800
+FOOTSTEP_FADE_MS = 120
 
 SPOTLIGHT_RADIUS = 40
 SPOTLIGHT_FEATHER = 0
@@ -219,6 +227,12 @@ def load_svg_surface(path, size):
             return surface
 
 
+def load_sound(path, volume=1.0):
+    sound = pygame.mixer.Sound(str(path))
+    sound.set_volume(volume)
+    return sound
+
+
 def tint_surface(surface, tint):
     tinted = surface.copy()
     tinted.fill(tint, special_flags=pygame.BLEND_RGB_MULT)
@@ -358,6 +372,7 @@ class Monster:
         self.step_time = 0.0
         self.left_anchor = None
         self.right_anchor = None
+        self.is_chasing = False
         self.chase_speed = MONSTER_SMELL_SPEED * self.rng.uniform(0.95, 1.05)
         self.passive_speed = MONSTER_PASSIVE_SPEED * self.rng.uniform(0.9, 1.1)
         self.step_speed = MONSTER_STEP_SPEED * self.rng.uniform(0.9, 1.1)
@@ -422,6 +437,7 @@ class Monster:
             active_target = self.smell_target
             active_speed = self.chase_speed
 
+        self.is_chasing = active_target is not None
         self.moving = False
         if active_target is not None:
             to_target = active_target - self.pos
@@ -949,7 +965,7 @@ def throw_stone(grid, items, start_tile, direction):
     return last_valid
 
 
-def handle_interaction(player, items, grid, sound_events, stone_projectiles, stone_sprite):
+def handle_interaction(player, items, grid, sound_events, stone_projectiles, stone_sprite, sfx=None):
     player_tile = get_player_tile(player)
     offset = direction_to_offset(player.last_dir)
     target_tile = (player_tile[0] + offset[0], player_tile[1] + offset[1]) if offset != (0, 0) else None
@@ -959,6 +975,8 @@ def handle_interaction(player, items, grid, sound_events, stone_projectiles, sto
         if player.carrying == ITEM_COAL and target_tile and tile_is_furnace(grid, target_tile):
             player.carrying = None
             emit_sound(sound_events, target_tile)
+            if sfx is not None:
+                sfx["furnace"].play()
             return False, True
         if player.carrying == ITEM_STONE:
             landing_tile = throw_stone(grid, items, player_tile, offset)
@@ -992,12 +1010,18 @@ def handle_interaction(player, items, grid, sound_events, stone_projectiles, sto
                 continue
             item.active = True
             emit_sound(sound_events, tile)
+            if sfx is not None:
+                sfx["lever"].play()
         elif item.kind == ITEM_APPLE:
             items.remove(item)
+            if sfx is not None:
+                sfx["pickup"].play()
             return True, False
         else:
             player.carrying = item.kind
             items.remove(item)
+            if sfx is not None:
+                sfx["pickup"].play()
         return False, False
     return False, False
 
@@ -1271,12 +1295,26 @@ def draw_typed_line(screen, font, x, y, segments, max_chars):
         remaining -= len(text)
 
 
-def run_level_intro(screen, clock, abilities_config, debuffs_config):
+def toggle_fullscreen():
+    current = pygame.display.get_surface()
+    if current is None:
+        return pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    is_fullscreen = bool(current.get_flags() & pygame.FULLSCREEN)
+    if is_fullscreen:
+        return pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    return pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+
+
+def run_level_intro(screen, clock, abilities_config, debuffs_config, level_number):
     lines = build_intro_lines(abilities_config, debuffs_config)
     if not lines:
         return "ok"
 
     font = pygame.font.SysFont(None, 36)
+    header_font = pygame.font.SysFont(None, 44)
+    prompt_font = pygame.font.SysFont(None, 28)
+    level_text = f"Уровень {level_number}"
+    prompt_text = "Нажмите Enter, чтобы продолжить"
     line_height = font.get_linesize() + 6
     line_widths = []
     line_lengths = []
@@ -1298,6 +1336,8 @@ def run_level_intro(screen, clock, abilities_config, debuffs_config):
 
     visible_chars = 0.0
     typing_done = False
+    header_surface = header_font.render(level_text, True, INTRO_TEXT)
+    prompt_surface = prompt_font.render(prompt_text, True, INTRO_TEXT)
 
     while True:
         dt = clock.tick(60) / 1000.0
@@ -1305,15 +1345,18 @@ def run_level_intro(screen, clock, abilities_config, debuffs_config):
             if event.type == pygame.QUIT:
                 return "quit"
             if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_F11:
+                    screen = toggle_fullscreen()
+                    continue
                 if event.key == pygame.K_ESCAPE:
                     return "menu"
                 if typing_done:
-                    return "ok"
-                visible_chars = float(total_chars)
-                typing_done = True
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if typing_done:
-                    return "ok"
+                    if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                        return "ok"
+                else:
+                    visible_chars = float(total_chars)
+                    typing_done = True
+            if event.type == pygame.MOUSEBUTTONDOWN and not typing_done:
                 visible_chars = float(total_chars)
                 typing_done = True
 
@@ -1322,10 +1365,17 @@ def run_level_intro(screen, clock, abilities_config, debuffs_config):
             if visible_chars >= total_chars:
                 typing_done = True
 
+        screen = pygame.display.get_surface() or screen
         screen.fill(INTRO_BG)
         width, height = screen.get_size()
         block_height = len(lines) * line_height
-        start_y = (height - block_height) // 2
+        header_rect = header_surface.get_rect(midtop=(width // 2, 24))
+        prompt_rect = prompt_surface.get_rect(midbottom=(width // 2, height - 24))
+        top_limit = header_rect.bottom + 20
+        bottom_limit = prompt_rect.top - 20
+        available_height = max(0, bottom_limit - top_limit)
+        start_y = top_limit + max(0, (available_height - block_height) // 2)
+        screen.blit(header_surface, header_rect)
 
         remaining = int(visible_chars)
         for index, segments in enumerate(lines):
@@ -1338,6 +1388,9 @@ def run_level_intro(screen, clock, abilities_config, debuffs_config):
             x = (width - line_widths[index]) // 2
             draw_typed_line(screen, font, x, y, segments, show_chars)
             remaining -= line_lengths[index]
+
+        if typing_done:
+            screen.blit(prompt_surface, prompt_rect)
 
         pygame.display.flip()
 
@@ -1361,6 +1414,9 @@ def run_message_screen(screen, clock, message, background=None):
             if event.type == pygame.QUIT:
                 return "quit"
             if event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
+                    screen = toggle_fullscreen()
+                    continue
                 if typing_done:
                     return "done"
                 visible_chars = float(total_chars)
@@ -1377,6 +1433,7 @@ def run_message_screen(screen, clock, message, background=None):
 
         fade_alpha = min(255.0, fade_alpha + 255.0 * dt / max(0.001, fade_duration))
 
+        screen = pygame.display.get_surface() or screen
         if background is not None:
             screen.blit(background, (0, 0))
             overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
@@ -1407,6 +1464,9 @@ def run_menu(screen, clock, initial_level):
             if event.type == pygame.QUIT:
                 return None
             if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_F11:
+                    screen = toggle_fullscreen()
+                    continue
                 if event.key == pygame.K_ESCAPE:
                     return None
                 if event.key == pygame.K_LEFT or event.key == pygame.K_a:
@@ -1427,6 +1487,7 @@ def run_menu(screen, clock, initial_level):
                 if event.key == pygame.K_RETURN:
                     return selected_level if selected_button == 0 else None
 
+        screen = pygame.display.get_surface() or screen
         screen.fill(MENU_BG)
         width, height = screen.get_size()
 
@@ -1464,7 +1525,7 @@ def run_menu(screen, clock, initial_level):
 
 def main():
     pygame.init()
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
     clock = pygame.time.Clock()
 
     while True:
@@ -1516,6 +1577,17 @@ def run_game(screen, clock, level_number):
         load_svg_surface(TEXTURES_DIR / "player_walk2.svg", (player_size, player_size)),
     ]
 
+    arm_lower = tint_surface(
+        load_svg_surface(
+            TEXTURES_DIR / "monster_arm_lower.svg",
+            (
+                int(TILE_SIZE * MONSTER_ARM_LOWER_SCALE_X),
+                int(TILE_SIZE * MONSTER_ARM_LOWER_SCALE_Y),
+            ),
+        ),
+        MONSTER_TINT,
+    )
+    arm_lower = pygame.transform.flip(arm_lower, True, False)
     monster_assets = {
         "head": tint_surface(
             load_svg_surface(
@@ -1534,17 +1606,30 @@ def run_game(screen, clock, level_number):
             ),
             MONSTER_TINT,
         ),
-        "arm_lower": tint_surface(
-            load_svg_surface(
-                TEXTURES_DIR / "monster_arm_lower.svg",
-                (
-                    int(TILE_SIZE * MONSTER_ARM_LOWER_SCALE_X),
-                    int(TILE_SIZE * MONSTER_ARM_LOWER_SCALE_Y),
-                ),
-            ),
-            MONSTER_TINT,
-        ),
+        "arm_lower": arm_lower,
     }
+
+    pygame.mixer.set_num_channels(12)
+    ambient_sound = load_sound(SOUNDS_DIR / "ambient.mp3", AMBIENT_VOLUME)
+    chase_sound = load_sound(SOUNDS_DIR / "chase.mp3", CHASE_VOLUME)
+    walk_sound = load_sound(SOUNDS_DIR / "player_walk.mp3", FOOTSTEP_VOLUME)
+    sfx = {
+        "throw": load_sound(SOUNDS_DIR / "throw_stone.mp3", SFX_VOLUME),
+        "furnace": load_sound(SOUNDS_DIR / "activate_furnace.mp3", SFX_VOLUME),
+        "pickup": load_sound(SOUNDS_DIR / "pick_up.mp3", SFX_VOLUME),
+        "lever": load_sound(SOUNDS_DIR / "activate_lever.mp3", SFX_VOLUME),
+    }
+    ambient_channel = pygame.mixer.Channel(0)
+    chase_channel = pygame.mixer.Channel(1)
+    footstep_channel = pygame.mixer.Channel(2)
+    ambient_channel.play(ambient_sound, loops=-1, fade_ms=MUSIC_FADE_MS)
+    chase_active = False
+    footstep_active = False
+
+    def stop_level_audio():
+        ambient_channel.fadeout(MUSIC_FADE_MS)
+        chase_channel.fadeout(MUSIC_FADE_MS)
+        footstep_channel.fadeout(FOOTSTEP_FADE_MS)
 
     levels = load_levels(LEVELS_PATH)
     level_config = get_level_config(levels, level_number)
@@ -1565,10 +1650,12 @@ def run_game(screen, clock, level_number):
     levers_required = max(0, int(objectives_config.get("levers", 0)))
     coal_loaded = 0
 
-    intro_status = run_level_intro(screen, clock, abilities_config, debuffs_config)
+    intro_status = run_level_intro(screen, clock, abilities_config, debuffs_config, level_number)
     if intro_status == "quit":
+        stop_level_audio()
         return "quit"
     if intro_status == "menu":
+        stop_level_audio()
         return "menu"
 
     spawn_tile = find_spawn_tile(grid)
@@ -1601,9 +1688,14 @@ def run_game(screen, clock, level_number):
         sound_events = []
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                stop_level_audio()
                 return "quit"
             elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_F11:
+                    screen = toggle_fullscreen()
+                    continue
                 if event.key == pygame.K_ESCAPE:
+                    stop_level_audio()
                     return "menu"
                 if event.key == pygame.K_w:
                     player.last_dir = pygame.Vector2(0, -1)
@@ -1621,6 +1713,7 @@ def run_game(screen, clock, level_number):
                         sound_events,
                         stone_projectiles,
                         item_assets[ITEM_STONE],
+                        sfx,
                     )
                     if ate_apple and HUNGER_ENABLED:
                         hunger_value = max(0.0, hunger_value - HUNGER_RESTORE)
@@ -1629,11 +1722,18 @@ def run_game(screen, clock, level_number):
 
         if not dead:
             player.update(dt, grid, map_size_px)
+            if player.moving and not footstep_active:
+                footstep_channel.play(walk_sound, loops=-1, fade_ms=FOOTSTEP_FADE_MS)
+                footstep_active = True
+            elif not player.moving and footstep_active:
+                footstep_channel.fadeout(FOOTSTEP_FADE_MS)
+                footstep_active = False
             for projectile in stone_projectiles[:]:
                 projectile.update(dt)
                 if projectile.done:
                     items.append(Item(ITEM_STONE, projectile.landing_tile))
                     emit_sound(sound_events, projectile.landing_tile)
+                    sfx["throw"].play()
                     stone_projectiles.remove(projectile)
             for monster in monsters:
                 monster.update(
@@ -1645,6 +1745,15 @@ def run_game(screen, clock, level_number):
                     monster_smell,
                     monster_vision,
                 )
+            any_chasing = any(monster.is_chasing for monster in monsters)
+            if any_chasing and not chase_active:
+                ambient_channel.fadeout(MUSIC_FADE_MS)
+                chase_channel.play(chase_sound, loops=-1, fade_ms=MUSIC_FADE_MS)
+                chase_active = True
+            elif not any_chasing and chase_active:
+                chase_channel.fadeout(MUSIC_FADE_MS)
+                ambient_channel.play(ambient_sound, loops=-1, fade_ms=MUSIC_FADE_MS)
+                chase_active = False
             player_center = pygame.Vector2(player.rect.center)
             for monster in monsters:
                 if (monster.pos - player_center).length_squared() <= monster_kill_radius_sq:
@@ -1680,6 +1789,7 @@ def run_game(screen, clock, level_number):
             levers_done = levers_required <= 0 or levers_active >= levers_required
             level_complete = coal_done and levers_done
 
+        screen = pygame.display.get_surface() or screen
         screen.fill((10, 10, 14))
         draw_map(screen, grid, assets, camera)
         draw_items(screen, items, item_assets, camera)
@@ -1707,10 +1817,12 @@ def run_game(screen, clock, level_number):
         pygame.display.flip()
 
         if dead:
+            stop_level_audio()
             snapshot = screen.copy()
             result = run_message_screen(screen, clock, "Вы умерли", snapshot)
             return "quit" if result == "quit" else "restart"
         if level_complete:
+            stop_level_audio()
             snapshot = screen.copy()
             result = run_message_screen(screen, clock, "Вы прошли уровень!", snapshot)
             return "quit" if result == "quit" else "menu"
