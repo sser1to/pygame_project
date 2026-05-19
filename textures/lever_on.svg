@@ -1,16 +1,43 @@
 <svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- GLOW aura under base (active state) -->
+  <rect x="6" y="29" width="36" height="18" fill="#00ff88" opacity="0.13"/>
+  <rect x="8" y="30" width="32" height="16" fill="#00ff88" opacity="0.13"/>
+
+  <!-- base plate -->
   <rect x="10" y="32" width="28" height="12" fill="#4a3a2a"/>
   <rect x="10" y="32" width="28" height="4" fill="#6a5a3a"/>
   <rect x="10" y="36" width="4" height="8" fill="#3a2a1a"/>
   <rect x="34" y="36" width="4" height="8" fill="#3a2a1a"/>
-  <rect x="13" y="35" width="4" height="4" fill="#888"/>
-  <rect x="31" y="35" width="4" height="4" fill="#888"/>
-  <rect x="15" y="37" width="2" height="2" fill="#555"/>
-  <rect x="33" y="37" width="2" height="2" fill="#555"/>
+
+  <!-- base plate bright green rim (active) -->
+  <rect x="10" y="32" width="28" height="2" fill="#00dd66"/>
+  <rect x="10" y="32" width="2" height="12" fill="#00bb55"/>
+  <rect x="36" y="32" width="2" height="12" fill="#009944"/>
+  <rect x="10" y="42" width="28" height="2" fill="#008833"/>
+
+  <!-- bolt screws -->
+  <rect x="13" y="35" width="4" height="4" fill="#aaaaaa"/>
+  <rect x="31" y="35" width="4" height="4" fill="#aaaaaa"/>
+  <rect x="15" y="37" width="2" height="2" fill="#777"/>
+  <rect x="33" y="37" width="2" height="2" fill="#777"/>
+
+  <!-- lever stick tilted right (ON position) -->
   <rect x="28" y="12" width="4" height="24" fill="#8a7a6a" transform="rotate(-30,30,36)"/>
-  <rect x="24" y="6" width="10" height="10" fill="#cc2222"/>
-  <rect x="26" y="8" width="4" height="4" fill="#ff4444"/>
-  <rect x="26" y="6" width="6" height="2" fill="#ff6666"/>
-  <rect x="8" y="40" width="4" height="4" fill="#44ff44"/>
-  <rect x="9" y="41" width="2" height="2" fill="#88ff88"/>
+  <!-- stick highlight -->
+  <rect x="28" y="12" width="2" height="24" fill="#9a8a7a" transform="rotate(-30,30,36)"/>
+
+
+
+  <!-- STATUS LIGHT PANEL on base — bright green strip -->
+  <rect x="16" y="37" width="16" height="5" fill="#111"/>
+  <rect x="16" y="37" width="16" height="1" fill="#222"/>
+  <!-- green bar fully lit -->
+  <rect x="17" y="38" width="14" height="3" fill="#00cc55"/>
+  <rect x="17" y="38" width="14" height="1" fill="#00ff77"/>
+  <rect x="17" y="39" width="14" height="1" fill="#009944"/>
+  <!-- scanline glint -->
+  <rect x="18" y="38" width="4" height="1" fill="#88ffaa"/>
+  <rect x="26" y="38" width="3" height="1" fill="#55dd88"/>
+
 </svg>

@@ -1,16 +1,37 @@
 <svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- base plate -->
   <rect x="10" y="32" width="28" height="12" fill="#4a3a2a"/>
   <rect x="10" y="32" width="28" height="4" fill="#5a4a2a"/>
   <rect x="10" y="36" width="4" height="8" fill="#3a2a1a"/>
   <rect x="34" y="36" width="4" height="8" fill="#3a2a1a"/>
-  <rect x="13" y="35" width="4" height="4" fill="#666"/>
-  <rect x="31" y="35" width="4" height="4" fill="#666"/>
-  <rect x="15" y="37" width="2" height="2" fill="#444"/>
-  <rect x="33" y="37" width="2" height="2" fill="#444"/>
+
+  <!-- base plate dim rim (inactive) -->
+  <rect x="10" y="32" width="28" height="2" fill="#555544"/>
+  <rect x="10" y="32" width="2" height="12" fill="#444433"/>
+  <rect x="36" y="32" width="2" height="12" fill="#333322"/>
+  <rect x="10" y="42" width="28" height="2" fill="#333322"/>
+
+  <!-- bolt screws -->
+  <rect x="13" y="35" width="4" height="4" fill="#777777"/>
+  <rect x="31" y="35" width="4" height="4" fill="#777777"/>
+  <rect x="15" y="37" width="2" height="2" fill="#555"/>
+  <rect x="33" y="37" width="2" height="2" fill="#555"/>
+
+  <!-- lever stick tilted left (OFF position) -->
   <rect x="22" y="12" width="4" height="24" fill="#7a6a5a" transform="rotate(30,24,36)"/>
-  <rect x="14" y="6" width="10" height="10" fill="#663333"/>
-  <rect x="16" y="8" width="4" height="4" fill="#884444"/>
-  <rect x="16" y="6" width="6" height="2" fill="#995555"/>
-  <rect x="8" y="40" width="4" height="4" fill="#333"/>
-  <rect x="9" y="41" width="2" height="2" fill="#555"/>
+  <!-- stick shadow side -->
+  <rect x="24" y="12" width="2" height="24" fill="#6a5a4a" transform="rotate(30,24,36)"/>
+
+
+
+  <!-- STATUS LIGHT PANEL on base — off/dark -->
+  <rect x="16" y="37" width="16" height="5" fill="#111"/>
+  <rect x="16" y="37" width="16" height="1" fill="#1a1a1a"/>
+  <!-- dead bar — very dim red, off -->
+  <rect x="17" y="38" width="14" height="3" fill="#1a0800"/>
+  <rect x="17" y="38" width="14" height="1" fill="#220a00"/>
+  <!-- single dim pixel hint -->
+  <rect x="23" y="39" width="2" height="1" fill="#441100"/>
+
 </svg>

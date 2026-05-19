@@ -14,6 +14,7 @@ MAP_PATH = Path(__file__).with_name("map.txt")
 TEXTURES_DIR = Path(__file__).with_name("textures")
 LEVELS_PATH = Path(__file__).with_name("levels.json")
 CURRENT_LEVEL = 4
+LEVEL_COUNT = 7
 TILE_FLOOR = 1
 TILE_WALL = 2
 TILE_WALL_TOP = 3
@@ -29,6 +30,19 @@ ITEM_STONE = "stone"
 ITEM_DRAW_SCALE = 0.6
 ITEM_OUTLINE_COLOR = (80, 140, 200)
 
+MENU_BG = (12, 12, 16)
+MENU_TEXT = (230, 230, 230)
+MENU_ACCENT = (120, 180, 255)
+MENU_DIM = (120, 120, 140)
+
+INTRO_BG = (0, 0, 0)
+INTRO_TEXT = (230, 230, 230)
+INTRO_MONSTER = (200, 60, 60)
+INTRO_CHAR_RATE = 42
+
+HUD_TEXT = (230, 230, 230)
+HUD_SHADOW = (20, 20, 20)
+
 DARK_TILE_FRACTION = 0.18
 DARK_SAFE_RADIUS = 4
 DARK_OVERLAY_ALPHA = 220
@@ -41,26 +55,27 @@ SHADOW_PAD = 8
 
 SPOTLIGHT_RADIUS = 40
 SPOTLIGHT_FEATHER = 0
-SPOTLIGHT_ALPHA = 210
+SPOTLIGHT_ALPHA = 190
 PLAYER_LIGHT_ALPHA = 135
 CANDLE_LIGHT_ALPHA = 115
 
 MONSTER_SMELL_INTERVAL = 5.0
 MONSTER_SMELL_RANGE_TILES = 10
-MONSTER_SMELL_SPEED = 190
-MONSTER_PASSIVE_SPEED = 100
+MONSTER_SMELL_SPEED = 170
+MONSTER_PASSIVE_SPEED = 90
 MONSTER_HEARING_RANGE_TILES = 20
 MONSTER_STOP_DISTANCE = 8
-MONSTER_HEAD_SCALE = 1.2
+MONSTER_HEAD_SCALE = 1.4
 MONSTER_ARM_UPPER_SCALE_X = 1.7
 MONSTER_ARM_UPPER_SCALE_Y = 0.35
-MONSTER_ARM_LOWER_SCALE_X = 1.5
-MONSTER_ARM_LOWER_SCALE_Y = 0.3
+MONSTER_ARM_LOWER_SCALE_X = 1.8
+MONSTER_ARM_LOWER_SCALE_Y = 0.5
 MONSTER_SPAWN_SAFE_RADIUS = 8
 MONSTER_SPAWN_MIN_DISTANCE = 6
 MONSTER_PATROL_COUNT = 14
 MONSTER_PATROL_SAMPLE_SIZE = 200
 MONSTER_GRAB_RADIUS_TILES = 4
+MONSTER_KILL_RADIUS = 36
 MONSTER_STEP_SPEED = 1.6
 MONSTER_GRAB_SWAY = 0.06
 MONSTER_ANCHOR_LERP = 0.08
@@ -75,8 +90,8 @@ COLD_RECOVERY_RATE = COLD_RATE / 2
 
 HUNGER_ENABLED = True
 HUNGER_MAX = 100.0
-HUNGER_RATE = 4.0
-HUNGER_RESTORE = HUNGER_MAX / 3
+HUNGER_RATE = 1.5
+HUNGER_RESTORE = HUNGER_MAX / 2
 
 SOLID_TILES = {0, TILE_WALL, TILE_WALL_TOP, TILE_FURNACE}
 PLAYER_SPEED = 220
@@ -1159,6 +1174,28 @@ def draw_hunger_bar(screen, hunger_value):
     pygame.draw.rect(screen, (230, 230, 230), (x, y, bar_width, bar_height), 1)
 
 
+def draw_objectives(screen, font, coal_loaded, coal_required, levers_active, levers_required):
+    lines = []
+    if coal_required > 0:
+        lines.append(f"Уголь: {coal_loaded}/{coal_required}")
+    if levers_required > 0:
+        lines.append(f"Рычаги: {levers_active}/{levers_required}")
+    if not lines:
+        return
+
+    line_height = font.get_linesize() + 4
+    width = screen.get_width()
+    x_padding = 16
+    y = 12
+    for line in lines:
+        text = font.render(line, True, HUD_TEXT)
+        shadow = font.render(line, True, HUD_SHADOW)
+        x = width - text.get_width() - x_padding
+        screen.blit(shadow, (x + 2, y + 2))
+        screen.blit(text, (x, y))
+        y += line_height
+
+
 def draw_spotlight(screen, player, candle_centers, camera):
     overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
     overlay.fill((0, 0, 0, SPOTLIGHT_ALPHA))
@@ -1184,12 +1221,270 @@ def draw_spotlight(screen, player, candle_centers, camera):
     screen.blit(overlay, (0, 0))
 
 
+def build_intro_lines(abilities_config, debuffs_config):
+    lines = []
+
+    if abilities_config.get("hearing", False):
+        lines.append([("Монстр", INTRO_MONSTER), (" умеет слышать", INTRO_TEXT)])
+    if abilities_config.get("vision", False):
+        lines.append([("Монстр", INTRO_MONSTER), (" умеет видеть", INTRO_TEXT)])
+    if abilities_config.get("smell", False):
+        lines.append([("Монстр", INTRO_MONSTER), (" умеет нюхать", INTRO_TEXT)])
+
+    cloning_count = max(0, int(abilities_config.get("cloning", 0)))
+    if cloning_count > 0:
+        lines.append(
+            [
+                ("Монстр", INTRO_MONSTER),
+                (f" умеет клонироваться (x{cloning_count})", INTRO_TEXT),
+            ]
+        )
+
+    debuff_lines = []
+    if debuffs_config.get("freezing", False):
+        debuff_lines.append([("В лаборатории становится холодно", INTRO_TEXT)])
+    if debuffs_config.get("hunger", False):
+        debuff_lines.append([("У вас урчит живот", INTRO_TEXT)])
+    if debuffs_config.get("darkness_amount", 0) > 0:
+        debuff_lines.append([("Темнота сгущается", INTRO_TEXT)])
+
+    if lines and debuff_lines:
+        lines.append([])
+    lines.extend(debuff_lines)
+
+    return lines
+
+
+def draw_typed_line(screen, font, x, y, segments, max_chars):
+    if max_chars <= 0:
+        return
+    remaining = max_chars
+    cursor_x = x
+    for text, color in segments:
+        if remaining <= 0:
+            break
+        chunk = text[:remaining]
+        if chunk:
+            surface = font.render(chunk, True, color)
+            screen.blit(surface, (cursor_x, y))
+            cursor_x += surface.get_width()
+        remaining -= len(text)
+
+
+def run_level_intro(screen, clock, abilities_config, debuffs_config):
+    lines = build_intro_lines(abilities_config, debuffs_config)
+    if not lines:
+        return "ok"
+
+    font = pygame.font.SysFont(None, 36)
+    line_height = font.get_linesize() + 6
+    line_widths = []
+    line_lengths = []
+    total_chars = 0
+
+    for segments in lines:
+        if not segments:
+            line_widths.append(0)
+            line_lengths.append(0)
+            continue
+        width = sum(font.size(text)[0] for text, _ in segments)
+        length = sum(len(text) for text, _ in segments)
+        line_widths.append(width)
+        line_lengths.append(length)
+        total_chars += length
+
+    if total_chars <= 0:
+        return "ok"
+
+    visible_chars = 0.0
+    typing_done = False
+
+    while True:
+        dt = clock.tick(60) / 1000.0
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return "menu"
+                if typing_done:
+                    return "ok"
+                visible_chars = float(total_chars)
+                typing_done = True
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if typing_done:
+                    return "ok"
+                visible_chars = float(total_chars)
+                typing_done = True
+
+        if not typing_done:
+            visible_chars = min(float(total_chars), visible_chars + INTRO_CHAR_RATE * dt)
+            if visible_chars >= total_chars:
+                typing_done = True
+
+        screen.fill(INTRO_BG)
+        width, height = screen.get_size()
+        block_height = len(lines) * line_height
+        start_y = (height - block_height) // 2
+
+        remaining = int(visible_chars)
+        for index, segments in enumerate(lines):
+            y = start_y + index * line_height
+            if not segments:
+                continue
+            if remaining <= 0:
+                break
+            show_chars = min(line_lengths[index], remaining)
+            x = (width - line_widths[index]) // 2
+            draw_typed_line(screen, font, x, y, segments, show_chars)
+            remaining -= line_lengths[index]
+
+        pygame.display.flip()
+
+
+def run_message_screen(screen, clock, message, background=None):
+    font = pygame.font.SysFont(None, 48)
+    total_chars = len(message)
+    if total_chars <= 0:
+        return "done"
+
+    visible_chars = 0.0
+    typing_done = False
+    hold_timer = 0.0
+    fade_alpha = 0.0
+    fade_duration = 0.5
+    hold_duration = 1.1
+
+    while True:
+        dt = clock.tick(60) / 1000.0
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
+                if typing_done:
+                    return "done"
+                visible_chars = float(total_chars)
+                typing_done = True
+
+        if not typing_done:
+            visible_chars = min(float(total_chars), visible_chars + INTRO_CHAR_RATE * dt)
+            if visible_chars >= total_chars:
+                typing_done = True
+        else:
+            hold_timer += dt
+            if hold_timer >= hold_duration:
+                return "done"
+
+        fade_alpha = min(255.0, fade_alpha + 255.0 * dt / max(0.001, fade_duration))
+
+        if background is not None:
+            screen.blit(background, (0, 0))
+            overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, int(fade_alpha)))
+            screen.blit(overlay, (0, 0))
+        else:
+            screen.fill((0, 0, 0))
+
+        width, height = screen.get_size()
+        text = message[:int(visible_chars)]
+        surface = font.render(text, True, INTRO_TEXT)
+        rect = surface.get_rect(center=(width // 2, height // 2))
+        screen.blit(surface, rect)
+
+        pygame.display.flip()
+
+
+def run_menu(screen, clock, initial_level):
+    title_font = pygame.font.SysFont(None, 72)
+    label_font = pygame.font.SysFont(None, 36)
+    button_font = pygame.font.SysFont(None, 32)
+
+    selected_level = initial_level
+    selected_button = 0
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return None
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return None
+                if event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                    selected_level -= 1
+                    if selected_level < 1:
+                        selected_level = LEVEL_COUNT
+                if event.key == pygame.K_RIGHT or event.key == pygame.K_d:
+                    selected_level += 1
+                    if selected_level > LEVEL_COUNT:
+                        selected_level = 1
+                if (
+                    event.key == pygame.K_UP
+                    or event.key == pygame.K_DOWN
+                    or event.key == pygame.K_w
+                    or event.key == pygame.K_s
+                ):
+                    selected_button = 1 - selected_button
+                if event.key == pygame.K_RETURN:
+                    return selected_level if selected_button == 0 else None
+
+        screen.fill(MENU_BG)
+        width, height = screen.get_size()
+
+        title = title_font.render("Abyss Walker", True, MENU_TEXT)
+        title_rect = title.get_rect(center=(width // 2, height // 4))
+        screen.blit(title, title_rect)
+
+        level_label = label_font.render("Level", True, MENU_DIM)
+        level_label_rect = level_label.get_rect(center=(width // 2, height // 2 - 80))
+        screen.blit(level_label, level_label_rect)
+
+        level_text = title_font.render(str(selected_level), True, MENU_TEXT)
+        level_rect = level_text.get_rect(center=(width // 2, height // 2 - 10))
+        screen.blit(level_text, level_rect)
+
+        left_arrow = label_font.render("<", True, MENU_ACCENT)
+        right_arrow = label_font.render(">", True, MENU_ACCENT)
+        screen.blit(left_arrow, left_arrow.get_rect(center=(width // 2 - 90, height // 2 - 10)))
+        screen.blit(right_arrow, right_arrow.get_rect(center=(width // 2 + 90, height // 2 - 10)))
+
+        buttons = [("Начать", 0), ("Выход", 1)]
+        for label, index in buttons:
+            text_color = MENU_TEXT if selected_button == index else MENU_DIM
+            rect_color = MENU_ACCENT if selected_button == index else MENU_DIM
+            text_surface = button_font.render(label, True, text_color)
+            button_rect = pygame.Rect(0, 0, 200, 46)
+            button_rect.center = (width // 2, height // 2 + 90 + index * 64)
+            pygame.draw.rect(screen, rect_color, button_rect, 2)
+            text_rect = text_surface.get_rect(center=button_rect.center)
+            screen.blit(text_surface, text_rect)
+
+        pygame.display.flip()
+        clock.tick(60)
+
+
 def main():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    pygame.display.set_caption("Abyss Walker - prototype")
     clock = pygame.time.Clock()
 
+    while True:
+        selected_level = run_menu(screen, clock, CURRENT_LEVEL)
+        if selected_level is None:
+            break
+        while True:
+            result = run_game(screen, clock, selected_level)
+            if result == "restart":
+                continue
+            if result == "menu":
+                break
+            if result == "quit":
+                pygame.quit()
+                return
+    pygame.quit()
+
+
+def run_game(screen, clock, level_number):
+    pygame.display.set_caption("Abyss Walker - prototype")
     grid = load_map(MAP_PATH)
     rows = len(grid)
     cols = len(grid[0])
@@ -1252,11 +1547,12 @@ def main():
     }
 
     levels = load_levels(LEVELS_PATH)
-    level_config = get_level_config(levels, CURRENT_LEVEL)
+    level_config = get_level_config(levels, level_number)
     items_config = level_config.get("items", {})
     objectives_config = level_config.get("objectives", {})
     debuffs_config = level_config.get("debuffs", {})
     abilities_config = level_config.get("monster_abilities", {})
+    hud_font = pygame.font.SysFont(None, 26)
     monster_hearing = abilities_config.get("hearing", False)
     monster_smell = abilities_config.get("smell", False)
     monster_vision = abilities_config.get("vision", False)
@@ -1264,6 +1560,16 @@ def main():
     freeze_enabled = debuffs_config.get("freezing", False)
     hunger_enabled = debuffs_config.get("hunger", False)
     darkness_amount = debuffs_config.get("darkness_amount", 0)
+
+    coal_required = max(0, int(objectives_config.get("coal", 0)))
+    levers_required = max(0, int(objectives_config.get("levers", 0)))
+    coal_loaded = 0
+
+    intro_status = run_level_intro(screen, clock, abilities_config, debuffs_config)
+    if intro_status == "quit":
+        return "quit"
+    if intro_status == "menu":
+        return "menu"
 
     spawn_tile = find_spawn_tile(grid)
     dark_tiles = build_dark_tiles(grid, spawn_tile, darkness_amount)
@@ -1273,6 +1579,7 @@ def main():
     cold_value = 0.0
     hunger_value = 0.0
     dead = False
+    monster_kill_radius_sq = MONSTER_KILL_RADIUS * MONSTER_KILL_RADIUS
     start_x = spawn_tile[0] * TILE_SIZE + (TILE_SIZE - player_size) / 2
     start_y = spawn_tile[1] * TILE_SIZE + (TILE_SIZE - player_size) / 2
     player = Player((start_x, start_y), player_size, player_images)
@@ -1292,11 +1599,12 @@ def main():
     while running:
         dt = clock.tick(60) / 1000.0
         sound_events = []
-        sound_events = []
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                running = False
+                return "quit"
             elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return "menu"
                 if event.key == pygame.K_w:
                     player.last_dir = pygame.Vector2(0, -1)
                 elif event.key == pygame.K_s:
@@ -1316,6 +1624,8 @@ def main():
                     )
                     if ate_apple and HUNGER_ENABLED:
                         hunger_value = max(0.0, hunger_value - HUNGER_RESTORE)
+                    if loaded_coal and coal_loaded < coal_required:
+                        coal_loaded += 1
 
         if not dead:
             player.update(dt, grid, map_size_px)
@@ -1335,6 +1645,11 @@ def main():
                     monster_smell,
                     monster_vision,
                 )
+            player_center = pygame.Vector2(player.rect.center)
+            for monster in monsters:
+                if (monster.pos - player_center).length_squared() <= monster_kill_radius_sq:
+                    dead = True
+                    break
         camera = compute_camera(player.rect, map_size_px)
 
         player_tile = get_player_tile(player)
@@ -1356,6 +1671,15 @@ def main():
         if hunger_enabled and hunger_value >= HUNGER_MAX:
             dead = True
 
+        levers_active = sum(
+            1 for item in items if item.kind == ITEM_LEVER and item.active
+        )
+        level_complete = False
+        if not dead:
+            coal_done = coal_required <= 0 or coal_loaded >= coal_required
+            levers_done = levers_required <= 0 or levers_active >= levers_required
+            level_complete = coal_done and levers_done
+
         screen.fill((10, 10, 14))
         draw_map(screen, grid, assets, camera)
         draw_items(screen, items, item_assets, camera)
@@ -1372,9 +1696,25 @@ def main():
             draw_cold_bar(screen, cold_value)
         if hunger_enabled:
             draw_hunger_bar(screen, hunger_value)
+        draw_objectives(
+            screen,
+            hud_font,
+            coal_loaded,
+            coal_required,
+            levers_active,
+            levers_required,
+        )
         pygame.display.flip()
 
-    pygame.quit()
+        if dead:
+            snapshot = screen.copy()
+            result = run_message_screen(screen, clock, "Вы умерли", snapshot)
+            return "quit" if result == "quit" else "restart"
+        if level_complete:
+            snapshot = screen.copy()
+            result = run_message_screen(screen, clock, "Вы прошли уровень!", snapshot)
+            return "quit" if result == "quit" else "menu"
+    return "menu"
 
 
 if __name__ == "__main__":
