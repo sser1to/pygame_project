@@ -78,8 +78,8 @@ MONSTER_ARM_UPPER_SCALE_X = 1.7
 MONSTER_ARM_UPPER_SCALE_Y = 0.35
 MONSTER_ARM_LOWER_SCALE_X = 1.8
 MONSTER_ARM_LOWER_SCALE_Y = 0.5
-MONSTER_SPAWN_SAFE_RADIUS = 8
-MONSTER_SPAWN_MIN_DISTANCE = 6
+MONSTER_SPAWN_SAFE_RADIUS = 20
+MONSTER_SPAWN_MIN_DISTANCE = 10
 MONSTER_PATROL_COUNT = 14
 MONSTER_PATROL_SAMPLE_SIZE = 200
 MONSTER_GRAB_RADIUS_TILES = 4
@@ -88,6 +88,7 @@ MONSTER_STEP_SPEED = 1.6
 MONSTER_GRAB_SWAY = 0.06
 MONSTER_ANCHOR_LERP = 0.08
 MONSTER_TINT = (70, 70, 70)
+CAMERA_ZOOM = 1.1
 
 STONE_THROW_SPEED = 520
 
@@ -903,6 +904,17 @@ def get_candle_light_tiles(items, player):
     return light_tiles
 
 
+def get_candle_visibility_tiles(items, player):
+    visibility_tiles = set()
+    visibility_radius = CANDLE_LIGHT_RADIUS + 1
+    if player.carrying == ITEM_CANDLE:
+        visibility_tiles.update(get_light_tiles(get_player_tile(player), visibility_radius))
+    for item in items:
+        if item.kind == ITEM_CANDLE:
+            visibility_tiles.update(get_light_tiles(item.tile, visibility_radius))
+    return visibility_tiles
+
+
 def get_candle_centers(player, items):
     centers = []
     if player.carrying == ITEM_CANDLE:
@@ -917,6 +929,10 @@ def get_candle_centers(player, items):
             )
         )
     return centers
+
+
+def item_is_visible(item_tile, dark_tiles, visibility_tiles):
+    return item_tile not in dark_tiles or item_tile in visibility_tiles
 
 
 def get_item_at(items, tile):
@@ -965,7 +981,16 @@ def throw_stone(grid, items, start_tile, direction):
     return last_valid
 
 
-def handle_interaction(player, items, grid, sound_events, stone_projectiles, stone_sprite, sfx=None):
+def handle_interaction(
+    player,
+    items,
+    grid,
+    sound_events,
+    stone_projectiles,
+    stone_sprite,
+    dark_tiles=None,
+    sfx=None,
+):
     player_tile = get_player_tile(player)
     offset = direction_to_offset(player.last_dir)
     target_tile = (player_tile[0] + offset[0], player_tile[1] + offset[1]) if offset != (0, 0) else None
@@ -1072,12 +1097,14 @@ def draw_map(screen, grid, assets, offset):
                 screen.blit(assets["furnace_single"], (world_x - offset.x, world_y - offset.y))
 
 
-def draw_items(screen, items, assets, offset):
+def draw_items(screen, items, assets, offset, dark_tiles=None, visibility_tiles=None):
     for item in items:
+        if dark_tiles is not None and visibility_tiles is not None and not item_is_visible(item.tile, dark_tiles, visibility_tiles):
+            continue
         item.draw(screen, assets, offset)
 
 
-def draw_item_outlines(screen, items, assets, outlines, offset, player):
+def draw_item_outlines(screen, items, assets, outlines, offset, player, dark_tiles=None, visibility_tiles=None):
     player_tile = get_player_tile(player)
     can_pick = player.carrying is None
     pickable_tiles = [player_tile] + adjacent_tiles(player_tile)
@@ -1085,6 +1112,8 @@ def draw_item_outlines(screen, items, assets, outlines, offset, player):
     candidate_dist = None
     player_center = player.rect.center
     for item in items:
+        if dark_tiles is not None and visibility_tiles is not None and not item_is_visible(item.tile, dark_tiles, visibility_tiles):
+            continue
         if item.tile not in pickable_tiles:
             continue
         if item.kind == ITEM_LEVER and item.active:
@@ -1218,6 +1247,18 @@ def draw_objectives(screen, font, coal_loaded, coal_required, levers_active, lev
         screen.blit(shadow, (x + 2, y + 2))
         screen.blit(text, (x, y))
         y += line_height
+
+
+def blit_zoomed_world(screen, world_surface, zoom):
+    if zoom <= 1.0:
+        screen.blit(world_surface, (0, 0))
+        return
+    width, height = world_surface.get_size()
+    zoomed_size = (int(width * zoom), int(height * zoom))
+    zoomed_surface = pygame.transform.smoothscale(world_surface, zoomed_size)
+    offset_x = (width - zoomed_size[0]) // 2
+    offset_y = (height - zoomed_size[1]) // 2
+    screen.blit(zoomed_surface, (offset_x, offset_y))
 
 
 def draw_spotlight(screen, player, candle_centers, camera):
@@ -1527,6 +1568,7 @@ def main():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
     clock = pygame.time.Clock()
+    pygame.mouse.set_visible(False)
 
     while True:
         selected_level = run_menu(screen, clock, CURRENT_LEVEL)
@@ -1713,6 +1755,7 @@ def run_game(screen, clock, level_number):
                         sound_events,
                         stone_projectiles,
                         item_assets[ITEM_STONE],
+                        dark_tiles,
                         sfx,
                     )
                     if ate_apple and HUNGER_ENABLED:
@@ -1763,6 +1806,7 @@ def run_game(screen, clock, level_number):
 
         player_tile = get_player_tile(player)
         light_tiles = get_candle_light_tiles(items, player)
+        visibility_tiles = get_candle_visibility_tiles(items, player)
         candle_centers = get_candle_centers(player, items)
 
         if freeze_enabled:
@@ -1791,17 +1835,20 @@ def run_game(screen, clock, level_number):
 
         screen = pygame.display.get_surface() or screen
         screen.fill((10, 10, 14))
-        draw_map(screen, grid, assets, camera)
-        draw_items(screen, items, item_assets, camera)
-        draw_projectiles(screen, stone_projectiles, camera)
-        player.draw(screen, camera)
-        draw_carried_item(screen, player, item_assets, camera)
-        draw_spotlight(screen, player, candle_centers, camera)
-        draw_darkness(screen, dark_tiles, dark_overlay, candle_centers, camera)
+        world_surface = pygame.Surface(screen.get_size())
+        world_surface.fill((10, 10, 14))
+        draw_map(world_surface, grid, assets, camera)
+        draw_items(world_surface, items, item_assets, camera, dark_tiles, visibility_tiles)
+        draw_projectiles(world_surface, stone_projectiles, camera)
+        player.draw(world_surface, camera)
+        draw_carried_item(world_surface, player, item_assets, camera)
+        draw_spotlight(world_surface, player, candle_centers, camera)
+        draw_darkness(world_surface, dark_tiles, dark_overlay, candle_centers, camera)
         for monster in monsters:
-            monster.draw(screen, camera)
-        draw_item_outlines(screen, items, item_assets, item_outlines, camera, player)
-        draw_furnace_outline(screen, grid, player, camera)
+            monster.draw(world_surface, camera)
+        draw_item_outlines(world_surface, items, item_assets, item_outlines, camera, player, dark_tiles, visibility_tiles)
+        draw_furnace_outline(world_surface, grid, player, camera)
+        blit_zoomed_world(screen, world_surface, CAMERA_ZOOM)
         if freeze_enabled:
             draw_cold_bar(screen, cold_value)
         if hunger_enabled:
