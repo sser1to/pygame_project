@@ -1623,8 +1623,8 @@ def run_game(screen, clock, level_number):
         load_svg_surface(
             TEXTURES_DIR / "monster_arm_lower.svg",
             (
-                int(TILE_SIZE * MONSTER_ARM_LOWER_SCALE_X),
-                int(TILE_SIZE * MONSTER_ARM_LOWER_SCALE_Y),
+                int(TILE_SIZE * MONSTER_ARM_LOWER_SCALE_X * 0.8),
+                int(TILE_SIZE * MONSTER_ARM_LOWER_SCALE_Y * 1.5),
             ),
         ),
         MONSTER_TINT,
