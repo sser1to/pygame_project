@@ -228,10 +228,41 @@ def load_svg_surface(path, size):
             return surface
 
 
-def load_sound(path, volume=1.0):
+def load_sound(path, volume=1.0, speed=1.0):
     sound = pygame.mixer.Sound(str(path))
-    sound.set_volume(volume)
-    return sound
+    if speed == 1.0:
+        sound.set_volume(volume)
+        return sound
+    try:
+        import numpy as np
+
+        arr = pygame.sndarray.array(sound)
+        if arr is None or arr.size == 0:
+            sound.set_volume(volume)
+            return sound
+
+        if speed <= 0:
+            speed = 1.0
+
+        # Fast integer-upsample/skip for common integer factors (e.g. 2x)
+        if abs(speed - round(speed)) < 1e-9 and int(round(speed)) >= 1:
+            stride = int(round(speed))
+            new_arr = arr[::stride].copy()
+        else:
+            # General resample by simple nearest-neighbor indexing
+            length = arr.shape[0]
+            new_length = max(1, int(length / speed))
+            indices = (np.arange(new_length) * speed).astype(np.int64)
+            indices = np.clip(indices, 0, length - 1)
+            new_arr = arr[indices]
+
+        new_sound = pygame.sndarray.make_sound(new_arr)
+        new_sound.set_volume(volume)
+        return new_sound
+    except Exception:
+        # If numpy or sndarray unavailable, fallback to original sound
+        sound.set_volume(volume)
+        return sound
 
 
 def tint_surface(surface, tint):
@@ -1654,7 +1685,7 @@ def run_game(screen, clock, level_number):
     pygame.mixer.set_num_channels(12)
     ambient_sound = load_sound(SOUNDS_DIR / "ambient.mp3", AMBIENT_VOLUME)
     chase_sound = load_sound(SOUNDS_DIR / "chase.mp3", CHASE_VOLUME)
-    walk_sound = load_sound(SOUNDS_DIR / "player_walk.mp3", FOOTSTEP_VOLUME)
+    walk_sound = load_sound(SOUNDS_DIR / "player_walk.mp3", FOOTSTEP_VOLUME, speed=2.0)
     sfx = {
         "throw": load_sound(SOUNDS_DIR / "throw_stone.mp3", SFX_VOLUME),
         "furnace": load_sound(SOUNDS_DIR / "activate_furnace.mp3", SFX_VOLUME),
