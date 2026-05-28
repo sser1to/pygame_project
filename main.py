@@ -1523,6 +1523,102 @@ def run_message_screen(screen, clock, message, background=None):
         pygame.display.flip()
 
 
+def run_guide_screen(screen, clock):
+    font = pygame.font.SysFont(None, 30)
+    header_font = pygame.font.SysFont(None, 44)
+    title_font = pygame.font.SysFont(None, 34)
+    prompt_font = pygame.font.SysFont(None, 28)
+
+    sections = [
+        (
+            "Управление",
+            [
+                "Передвижение - WASD",
+                "Взаимодействие - ENTER",
+                "Выход - ESC",
+            ],
+        ),
+        (
+            "Способности монстра",
+            [
+                "- Обоняние - периодически чувствует запах игрока вблизи",
+                "- Слух - слышит переключение рычага, закидывание угля в печь, бросок камня",
+                "- Зрение - видит игрока, если между ним и монстром нет стены",
+                "- Клонирование - добавляются новые монстры",
+            ],
+        ),
+        (
+            "Предметы",
+            [
+                "- Уголь - используется для печи, один из ключевых предметов, можно перетаскивать",
+                "- Рычаг - один из ключевых предметов, при активации издает звук",
+                "- Свеча - помогает видеть в темных участках карты, можно перетаскивать",
+                "- Камень - помогает отвлекать монстров звуком броска, можно перетаскивать",
+                "- Яблоко - восстанавливает половину голода",
+            ],
+        ),
+        (
+            "Прочее",
+            [
+                "- Темнота - появляется случайным образом на карте и ограничивает видимость",
+                "- Замерзание - на некоторых уровнях игрок в темноте начинает замерзать, если не выйти из темноты или не воспользоваться свечой, то игрок умрет",
+                "- Голод - на некоторых уровнях игрок испытывает голод, если вовремя не съесть яблоко, то игрок умрет",
+            ],
+        ),
+    ]
+
+    prompt_surface = prompt_font.render("Нажмите ESC или Enter, чтобы вернуться", True, INTRO_TEXT)
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_F11:
+                    screen = toggle_fullscreen()
+                    continue
+                if event.key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_KP_ENTER):
+                    return "menu"
+
+        screen = pygame.display.get_surface() or screen
+        screen.fill((0, 0, 0))
+        width, height = screen.get_size()
+
+        header_surface = header_font.render("Гайд", True, INTRO_TEXT)
+        header_rect = header_surface.get_rect(midtop=(width // 2, 24))
+        screen.blit(header_surface, header_rect)
+
+        top = header_rect.bottom + 18
+        bottom = height - prompt_surface.get_height() - 28
+        available_height = max(0, bottom - top)
+        section_gap = 12
+        header_gap = 10
+        body_line_height = font.get_linesize() + 4
+        title_line_height = title_font.get_linesize() + 4
+
+        content_height = 0
+        for section_title, body_lines in sections:
+            content_height += title_line_height + header_gap
+            content_height += len(body_lines) * body_line_height
+            content_height += section_gap
+        content_height = max(0, content_height - section_gap)
+
+        y = top + max(0, (available_height - content_height) // 2)
+        for section_title, body_lines in sections:
+            title_surface = title_font.render(section_title, True, MENU_ACCENT)
+            screen.blit(title_surface, (64, y))
+            y += title_line_height
+            y += header_gap
+            for line in body_lines:
+                text_surface = font.render(line, True, INTRO_TEXT)
+                screen.blit(text_surface, (84, y))
+                y += body_line_height
+            y += section_gap
+
+        screen.blit(prompt_surface, prompt_surface.get_rect(midbottom=(width // 2, height - 20)))
+        pygame.display.flip()
+
+
 def run_menu(screen, clock, initial_level):
     title_font = pygame.font.SysFont(None, 72)
     label_font = pygame.font.SysFont(None, 36)
@@ -1549,15 +1645,19 @@ def run_menu(screen, clock, initial_level):
                     selected_level += 1
                     if selected_level > LEVEL_COUNT:
                         selected_level = 1
-                if (
-                    event.key == pygame.K_UP
-                    or event.key == pygame.K_DOWN
-                    or event.key == pygame.K_w
-                    or event.key == pygame.K_s
-                ):
-                    selected_button = 1 - selected_button
+                if event.key == pygame.K_UP or event.key == pygame.K_w:
+                    selected_button = (selected_button - 1) % 3
+                if event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                    selected_button = (selected_button + 1) % 3
                 if event.key == pygame.K_RETURN:
-                    return selected_level if selected_button == 0 else None
+                    if selected_button == 0:
+                        return selected_level
+                    if selected_button == 1:
+                        guide_result = run_guide_screen(screen, clock)
+                        if guide_result == "quit":
+                            return None
+                    else:
+                        return None
 
         screen = pygame.display.get_surface() or screen
         screen.fill(MENU_BG)
@@ -1567,7 +1667,7 @@ def run_menu(screen, clock, initial_level):
         title_rect = title.get_rect(center=(width // 2, height // 4))
         screen.blit(title, title_rect)
 
-        level_label = label_font.render("Level", True, MENU_DIM)
+        level_label = label_font.render("Уровень", True, MENU_DIM)
         level_label_rect = level_label.get_rect(center=(width // 2, height // 2 - 80))
         screen.blit(level_label, level_label_rect)
 
@@ -1580,7 +1680,7 @@ def run_menu(screen, clock, initial_level):
         screen.blit(left_arrow, left_arrow.get_rect(center=(width // 2 - 90, height // 2 - 10)))
         screen.blit(right_arrow, right_arrow.get_rect(center=(width // 2 + 90, height // 2 - 10)))
 
-        buttons = [("Начать", 0), ("Выход", 1)]
+        buttons = [("Начать", 0), ("Гайд", 1), ("Выход", 2)]
         for label, index in buttons:
             text_color = MENU_TEXT if selected_button == index else MENU_DIM
             rect_color = MENU_ACCENT if selected_button == index else MENU_DIM
@@ -1601,10 +1701,13 @@ def main():
     clock = pygame.time.Clock()
     pygame.mouse.set_visible(False)
 
+    last_selected_level = CURRENT_LEVEL
+
     while True:
-        selected_level = run_menu(screen, clock, CURRENT_LEVEL)
+        selected_level = run_menu(screen, clock, last_selected_level)
         if selected_level is None:
             break
+        last_selected_level = selected_level
         while True:
             result = run_game(screen, clock, selected_level)
             if result == "restart":
