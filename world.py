@@ -339,6 +339,12 @@ def build_dark_tiles(grid, spawn_tile, darkness_amount):
         for _, tile in scores:
             dark_neighbors = 0
             for neighbor in _neighbors8(tile):
+                if not tile_in_bounds(grid, neighbor):
+                    dark_neighbors += 1
+                    continue
+                if grid[neighbor[1]][neighbor[0]] != TILE_FLOOR:
+                    dark_neighbors += 1
+                    continue
                 if neighbor in dark_tiles:
                     dark_neighbors += 1
             if tile in dark_tiles:
@@ -379,7 +385,7 @@ def _tile_distance_sq(a, b):
     return dx * dx + dy * dy
 
 
-def _best_candidate(available, existing, spawn_tile, min_dist_sq, rng):
+def _best_candidate(available, existing, spawn_tile, min_same_sq, min_spawn_sq, rng):
     best = None
     best_score = -1.0
     if not available:
@@ -387,15 +393,16 @@ def _best_candidate(available, existing, spawn_tile, min_dist_sq, rng):
     samples = min(len(available), max(3, ITEM_SPAWN_SAMPLES))
     for _ in range(samples):
         cand = rng.choice(available)
-        if _tile_distance_sq(cand, spawn_tile) < min_dist_sq:
+        dist_spawn = _tile_distance_sq(cand, spawn_tile)
+        if dist_spawn < min_spawn_sq:
             continue
         if existing:
             closest_same = min(_tile_distance_sq(cand, other) for other in existing)
-            if closest_same < min_dist_sq:
+            if closest_same < min_same_sq:
                 continue
         else:
-            closest_same = min_dist_sq * 4
-        score = min(closest_same, _tile_distance_sq(cand, spawn_tile))
+            closest_same = float("inf")
+        score = min(closest_same, dist_spawn)
         if score > best_score:
             best = cand
             best_score = score
@@ -408,7 +415,8 @@ def spawn_items(grid, spawn_tile, items_counts, objectives):
     floor_tiles = collect_floor_tiles(grid)
     available = [tile for tile in floor_tiles if tile != spawn_tile]
     rng = random.Random()
-    min_dist_sq = ITEM_MIN_DISTANCE_TILES * ITEM_MIN_DISTANCE_TILES
+    min_same_sq = ITEM_MIN_DISTANCE_TILES * ITEM_MIN_DISTANCE_TILES
+    min_spawn_sq = ITEM_MIN_DISTANCE_TILES * ITEM_MIN_DISTANCE_TILES
 
     items = []
     placed_by_kind = {
@@ -435,6 +443,8 @@ def spawn_items(grid, spawn_tile, items_counts, objectives):
     for kind, count in spawn_plan:
         if count <= 0:
             continue
+        current_same_sq = min_same_sq
+        current_spawn_sq = min_spawn_sq
         for _ in range(count):
             candidate = None
             for _ in range(max(1, ITEM_SPAWN_ATTEMPTS)):
@@ -442,13 +452,20 @@ def spawn_items(grid, spawn_tile, items_counts, objectives):
                     available,
                     placed_by_kind[kind],
                     spawn_tile,
-                    min_dist_sq,
+                    current_same_sq,
+                    current_spawn_sq,
                     rng,
                 )
                 if candidate is not None:
                     break
+                if current_same_sq > 0:
+                    current_same_sq = max(0, int(current_same_sq * 0.85))
+                elif current_spawn_sq > 0:
+                    current_spawn_sq = max(0, int(current_spawn_sq * 0.9))
             if candidate is None:
-                break
+                if not available:
+                    break
+                candidate = rng.choice(available)
             items.append(Item(kind, candidate))
             placed_by_kind[kind].append(candidate)
             if candidate in available:
