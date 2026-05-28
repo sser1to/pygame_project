@@ -44,6 +44,18 @@
 - Существо, которое невозможно забыть
 Огромная голова, длинные руки, цепляющиеся за стены и пол. Оно не ходит - оно подбирается к тебе.
 
+## Скриншоты из игры
+
+<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/b4d80a94-e330-4e5f-95ea-abbb4dcdc787" />
+
+<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/8f6b7866-4121-4b53-b779-f95891fd2bf8" />
+
+<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/470eebc4-61e2-411c-8a9f-7cf7593adaf7" />
+
+<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/d62945d2-206c-4652-93c8-1e6931a1cfa0" />
+
+<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/58a26922-80b2-41b8-b94a-3216cab8668e" />
+
 ## Сложные алгоритмы
 
 1. Передвижение монстра
