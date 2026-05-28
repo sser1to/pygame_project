@@ -1,3 +1,4 @@
+import heapq
 import json
 import math
 import random
@@ -6,30 +7,28 @@ import pygame
 
 from settings import (
     CANDLE_LIGHT_RADIUS,
-    DARK_BLOB_COUNT,
-    DARK_BLOB_MIN_SIZE,
+    DARK_NOISE_OCTAVES,
+    DARK_NOISE_PERSISTENCE,
+    DARK_NOISE_SCALE,
     DARK_SAFE_RADIUS,
+    DARK_SMOOTH_PASSES,
     DARK_TILE_FRACTION,
     DARK_OVERLAY_ALPHA,
-    HUNGER_RESTORE,
     ITEM_APPLE,
     ITEM_CANDLE,
     ITEM_COAL,
     ITEM_LEVER,
+    ITEM_MIN_DISTANCE_TILES,
+    ITEM_SPAWN_ATTEMPTS,
+    ITEM_SPAWN_SAMPLES,
     ITEM_STONE,
-    MONSTER_GRAB_RADIUS_TILES,
-    MONSTER_HEARING_RANGE_TILES,
-    MONSTER_KILL_RADIUS,
     MONSTER_PATROL_COUNT,
     MONSTER_PATROL_SAMPLE_SIZE,
-    MONSTER_SMELL_INTERVAL,
-    MONSTER_SMELL_RANGE_TILES,
     MONSTER_SPAWN_MIN_DISTANCE,
     MONSTER_SPAWN_SAFE_RADIUS,
     SHADOW_BLUR_PASSES,
     SHADOW_CORNER_RADIUS,
     SHADOW_PAD,
-    STONE_THROW_SPEED,
     TILE_FLOOR,
     TILE_FURNACE,
     TILE_SPAWN,
@@ -123,6 +122,12 @@ def tile_blocks_vision(grid, tile):
     return grid[tile[1]][tile[0]] in (TILE_WALL, TILE_WALL_TOP, TILE_FURNACE)
 
 
+def tile_is_walkable(grid, tile):
+    if not tile_in_bounds(grid, tile):
+        return False
+    return grid[tile[1]][tile[0]] not in SOLID_TILES
+
+
 def get_player_tile(player):
     return (player.rect.centerx // TILE_SIZE, player.rect.centery // TILE_SIZE)
 
@@ -165,62 +170,185 @@ def tile_to_world_center(tile):
     )
 
 
-def collect_floor_tiles(grid):
-    tiles = []
-    for ty, row in enumerate(grid):
-        for tx, tile in enumerate(row):
-            if tile == TILE_FLOOR:
-                tiles.append((tx, ty))
-    return tiles
+def _wall_penalty(grid, tile):
+    penalty = 0.0
+    for neighbor in _neighbors8(tile):
+        if not tile_is_walkable(grid, neighbor):
+            penalty += 0.12
+    return penalty
 
 
-def grow_dark_blob(seed, target_size, available):
-    blob = {seed}
-    frontier = [seed]
-    available.remove(seed)
-    while frontier and len(blob) < target_size:
-        current = random.choice(frontier)
-        neighbors = [tile for tile in adjacent_tiles(current) if tile in available]
-        if not neighbors:
-            frontier.remove(current)
+def build_flow_field(grid, goals):
+    rows = len(grid)
+    cols = len(grid[0])
+    inf = float("inf")
+    cost = [[inf for _ in range(cols)] for _ in range(rows)]
+    heap = []
+
+    for goal_tile, bias in goals:
+        if not tile_is_walkable(grid, goal_tile):
             continue
-        next_tile = random.choice(neighbors)
-        blob.add(next_tile)
-        available.remove(next_tile)
-        frontier.append(next_tile)
-    return blob
+        tx, ty = goal_tile
+        if bias < cost[ty][tx]:
+            cost[ty][tx] = bias
+            heapq.heappush(heap, (bias, tx, ty))
+
+    while heap:
+        current_cost, tx, ty = heapq.heappop(heap)
+        if current_cost != cost[ty][tx]:
+            continue
+        for nx, ny in adjacent_tiles((tx, ty)):
+            if not tile_is_walkable(grid, (nx, ny)):
+                continue
+            step_cost = 1.0 + _wall_penalty(grid, (nx, ny))
+            next_cost = current_cost + step_cost
+            if next_cost < cost[ny][nx]:
+                cost[ny][nx] = next_cost
+                heapq.heappush(heap, (next_cost, nx, ny))
+
+    return cost
+
+
+def pick_flow_step(flow_field, current_tile, rng):
+    tx, ty = current_tile
+    if ty < 0 or ty >= len(flow_field) or tx < 0 or tx >= len(flow_field[0]):
+        return None
+    current_cost = flow_field[ty][tx]
+    if current_cost == float("inf"):
+        return None
+    candidates = []
+    for nx, ny in adjacent_tiles(current_tile):
+        if ny < 0 or ny >= len(flow_field) or nx < 0 or nx >= len(flow_field[0]):
+            continue
+        if flow_field[ny][nx] < current_cost:
+            candidates.append((nx, ny))
+    if not candidates:
+        return None
+    return rng.choice(candidates)
+
+
+def _lerp(a, b, t):
+    return a + (b - a) * t
+
+
+def _smoothstep(t):
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _value_noise_layer(cols, rows, scale, rng):
+    grid_cols = max(2, cols // scale + 2)
+    grid_rows = max(2, rows // scale + 2)
+    values = [[rng.random() for _ in range(grid_cols)] for _ in range(grid_rows)]
+    layer = [[0.0 for _ in range(cols)] for _ in range(rows)]
+    for y in range(rows):
+        gy = y / float(scale)
+        y0 = int(gy)
+        y1 = min(y0 + 1, grid_rows - 1)
+        ty = _smoothstep(gy - y0)
+        for x in range(cols):
+            gx = x / float(scale)
+            x0 = int(gx)
+            x1 = min(x0 + 1, grid_cols - 1)
+            tx = _smoothstep(gx - x0)
+            v00 = values[y0][x0]
+            v10 = values[y0][x1]
+            v01 = values[y1][x0]
+            v11 = values[y1][x1]
+            v0 = _lerp(v00, v10, tx)
+            v1 = _lerp(v01, v11, tx)
+            layer[y][x] = _lerp(v0, v1, ty)
+    return layer
+
+
+def _fractal_noise(cols, rows, rng):
+    noise = [[0.0 for _ in range(cols)] for _ in range(rows)]
+    amplitude = 1.0
+    total_amp = 0.0
+    scale = max(1, DARK_NOISE_SCALE)
+    for _ in range(max(1, DARK_NOISE_OCTAVES)):
+        layer = _value_noise_layer(cols, rows, scale, rng)
+        for y in range(rows):
+            for x in range(cols):
+                noise[y][x] += layer[y][x] * amplitude
+        total_amp += amplitude
+        amplitude *= DARK_NOISE_PERSISTENCE
+        scale = max(1, int(scale * 0.5))
+    if total_amp <= 0:
+        return noise
+    for y in range(rows):
+        for x in range(cols):
+            noise[y][x] /= total_amp
+    return noise
+
+
+def _neighbors8(tile):
+    tx, ty = tile
+    return [
+        (tx - 1, ty - 1),
+        (tx, ty - 1),
+        (tx + 1, ty - 1),
+        (tx - 1, ty),
+        (tx + 1, ty),
+        (tx - 1, ty + 1),
+        (tx, ty + 1),
+        (tx + 1, ty + 1),
+    ]
 
 
 def build_dark_tiles(grid, spawn_tile, darkness_amount):
     if darkness_amount <= 0:
         return set()
     floor_tiles = collect_floor_tiles(grid)
-    safe_tiles = [
-        tile
-        for tile in floor_tiles
-        if abs(tile[0] - spawn_tile[0]) + abs(tile[1] - spawn_tile[1]) > DARK_SAFE_RADIUS
-    ]
-    if not safe_tiles:
+    if not floor_tiles:
         return set()
+
+    rows = len(grid)
+    cols = len(grid[0])
+    rng = random.Random()
+    noise = _fractal_noise(cols, rows, rng)
+
+    safe_radius_sq = DARK_SAFE_RADIUS * DARK_SAFE_RADIUS
+    scores = []
+    for ty in range(rows):
+        for tx in range(cols):
+            if grid[ty][tx] != TILE_FLOOR:
+                continue
+            dx = tx - spawn_tile[0]
+            dy = ty - spawn_tile[1]
+            dist_sq = dx * dx + dy * dy
+            if dist_sq <= safe_radius_sq:
+                continue
+            edge_bias = (abs(dx) + abs(dy)) * 0.015
+            jitter = rng.uniform(-0.05, 0.05)
+            score = noise[ty][tx] + edge_bias + jitter
+            scores.append((score, (tx, ty)))
+
+    if not scores:
+        return set()
+
     fraction = DARK_TILE_FRACTION * max(0, darkness_amount)
-    total = int(len(safe_tiles) * fraction)
+    total = min(len(scores), max(0, int(len(scores) * fraction)))
     if total <= 0:
         return set()
-    total = min(total, len(safe_tiles))
-    blob_count = min(DARK_BLOB_COUNT, max(1, total // DARK_BLOB_MIN_SIZE))
-    remaining = total
-    available = set(safe_tiles)
-    dark_tiles = set()
-    for index in range(blob_count):
-        if not available:
-            break
-        blobs_left = blob_count - index
-        target = max(DARK_BLOB_MIN_SIZE, remaining // blobs_left)
-        target = min(target, len(available))
-        seed = random.choice(tuple(available))
-        blob = grow_dark_blob(seed, target, available)
-        dark_tiles.update(blob)
-        remaining -= len(blob)
+
+    scores.sort(key=lambda item: item[0], reverse=True)
+    dark_tiles = {tile for _, tile in scores[:total]}
+
+    for _ in range(max(1, DARK_SMOOTH_PASSES)):
+        next_dark = set()
+        for _, tile in scores:
+            dark_neighbors = 0
+            for neighbor in _neighbors8(tile):
+                if neighbor in dark_tiles:
+                    dark_neighbors += 1
+            if tile in dark_tiles:
+                if dark_neighbors >= 3:
+                    next_dark.add(tile)
+            else:
+                if dark_neighbors >= 5:
+                    next_dark.add(tile)
+        dark_tiles = next_dark
+
     return dark_tiles
 
 
@@ -245,13 +373,51 @@ def build_patrol_points(grid, count, sample_size):
     return [tile_to_world_center(tile) for tile in points]
 
 
+def _tile_distance_sq(a, b):
+    dx = a[0] - b[0]
+    dy = a[1] - b[1]
+    return dx * dx + dy * dy
+
+
+def _best_candidate(available, existing, spawn_tile, min_dist_sq, rng):
+    best = None
+    best_score = -1.0
+    if not available:
+        return None
+    samples = min(len(available), max(3, ITEM_SPAWN_SAMPLES))
+    for _ in range(samples):
+        cand = rng.choice(available)
+        if _tile_distance_sq(cand, spawn_tile) < min_dist_sq:
+            continue
+        if existing:
+            closest_same = min(_tile_distance_sq(cand, other) for other in existing)
+            if closest_same < min_dist_sq:
+                continue
+        else:
+            closest_same = min_dist_sq * 4
+        score = min(closest_same, _tile_distance_sq(cand, spawn_tile))
+        if score > best_score:
+            best = cand
+            best_score = score
+    return best
+
+
 def spawn_items(grid, spawn_tile, items_counts, objectives):
     from entities import Item
 
     floor_tiles = collect_floor_tiles(grid)
     available = [tile for tile in floor_tiles if tile != spawn_tile]
-    random.shuffle(available)
+    rng = random.Random()
+    min_dist_sq = ITEM_MIN_DISTANCE_TILES * ITEM_MIN_DISTANCE_TILES
+
     items = []
+    placed_by_kind = {
+        ITEM_COAL: [],
+        ITEM_CANDLE: [],
+        ITEM_APPLE: [],
+        ITEM_LEVER: [],
+        ITEM_STONE: [],
+    }
 
     candle_count = items_counts.get("candles", 1)
     stone_count = items_counts.get("stones", 0)
@@ -267,10 +433,26 @@ def spawn_items(grid, spawn_tile, items_counts, objectives):
     ]
 
     for kind, count in spawn_plan:
+        if count <= 0:
+            continue
         for _ in range(count):
-            if not available:
+            candidate = None
+            for _ in range(max(1, ITEM_SPAWN_ATTEMPTS)):
+                candidate = _best_candidate(
+                    available,
+                    placed_by_kind[kind],
+                    spawn_tile,
+                    min_dist_sq,
+                    rng,
+                )
+                if candidate is not None:
+                    break
+            if candidate is None:
                 break
-            items.append(Item(kind, available.pop()))
+            items.append(Item(kind, candidate))
+            placed_by_kind[kind].append(candidate)
+            if candidate in available:
+                available.remove(candidate)
     return items
 
 

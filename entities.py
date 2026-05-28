@@ -25,8 +25,14 @@ from settings import (
     TILE_SIZE,
     ITEM_LEVER,
 )
-from assets import tint_surface
-from world import get_wall_tiles_near, has_line_of_sight, pick_arm_targets
+from world import (
+    build_flow_field,
+    get_wall_tiles_near,
+    has_line_of_sight,
+    pick_arm_targets,
+    pick_flow_step,
+    tile_to_world_center,
+)
 
 
 class Player:
@@ -116,6 +122,7 @@ class Player:
 class Monster:
     def __init__(self, start_pos, assets, patrol_points):
         self.pos = pygame.Vector2(start_pos)
+        self.velocity = pygame.Vector2(0, 0)
         self.head = assets["head"]
         self.arm_upper = assets["arm_upper"]
         self.arm_lower = assets["arm_lower"]
@@ -134,6 +141,11 @@ class Monster:
         self.left_anchor = None
         self.right_anchor = None
         self.is_chasing = False
+        self.nav_timer = 0.0
+        self.nav_interval = 0.35 * self.rng.uniform(0.8, 1.2)
+        self.nav_field = None
+        self.nav_goals = None
+        self.stall_timer = 0.0
         self.chase_speed = MONSTER_SMELL_SPEED * self.rng.uniform(0.95, 1.05)
         self.passive_speed = MONSTER_PASSIVE_SPEED * self.rng.uniform(0.9, 1.1)
         self.step_speed = MONSTER_STEP_SPEED * self.rng.uniform(0.9, 1.1)
@@ -184,19 +196,13 @@ class Monster:
                     self.smell_target = player_vec + self.target_offset
 
         active_target = None
-        active_speed = None
         if self.last_seen is not None and self.vision_timer > 0.0:
             active_target = self.last_seen
-            active_speed = self.chase_speed
         elif self.hearing_target is not None:
             active_target = self.hearing_target
-            active_speed = self.chase_speed
         elif self.smell_target is not None:
             active_target = self.smell_target
-            active_speed = self.chase_speed
 
-        self.is_chasing = active_target is not None
-        self.moving = False
         if active_target is not None:
             to_target = active_target - self.pos
             if to_target.length_squared() <= MONSTER_STOP_DISTANCE * MONSTER_STOP_DISTANCE:
@@ -204,25 +210,82 @@ class Monster:
                     self.hearing_target = None
                 if active_target == self.smell_target:
                     self.smell_target = None
+        if self.passive_target is not None:
+            to_passive = self.passive_target - self.pos
+            if to_passive.length_squared() <= MONSTER_STOP_DISTANCE * MONSTER_STOP_DISTANCE:
+                self.passive_target = None
+                self.nav_goals = None
+                self.nav_field = None
+
+        if active_target is None and self.passive_target is None:
+            self.passive_target = self.next_patrol_target()
+        elif active_target is not None:
+            self.passive_target = None
+
+        goals = []
+        if self.last_seen is not None and self.vision_timer > 0.0:
+            goals.append((self._pos_to_tile(self.last_seen), 0.0))
+        if self.hearing_target is not None:
+            goals.append((self._pos_to_tile(self.hearing_target), 6.0))
+        if self.smell_target is not None:
+            goals.append((self._pos_to_tile(self.smell_target), 8.0))
+        if not goals and self.passive_target is not None:
+            goals.append((self._pos_to_tile(self.passive_target), 10.0))
+
+        self.is_chasing = bool(self.last_seen or self.hearing_target or self.smell_target)
+        self.moving = False
+
+        if goals:
+            if self.nav_timer <= 0.0 or goals != self.nav_goals:
+                self.nav_field = build_flow_field(grid, goals)
+                self.nav_timer = self.nav_interval
+                self.nav_goals = list(goals)
             else:
-                direction = to_target.normalize()
-                self.pos += direction * active_speed * dt
-                self.moving = True
-        else:
-            if self.passive_target is None:
-                self.passive_target = self.next_patrol_target()
-            if self.passive_target is not None:
-                to_target = self.passive_target - self.pos
-                if to_target.length_squared() <= MONSTER_STOP_DISTANCE * MONSTER_STOP_DISTANCE:
-                    self.passive_target = None
+                self.nav_timer = max(0.0, self.nav_timer - dt)
+
+            current_tile = self._pos_to_tile(self.pos)
+            step_tile = pick_flow_step(self.nav_field, current_tile, self.rng)
+            if step_tile is not None:
+                desired_pos = pygame.Vector2(tile_to_world_center(step_tile))
+                desired_vec = desired_pos - self.pos
+                if desired_vec.length_squared() > 0:
+                    desired_dir = desired_vec.normalize()
                 else:
-                    direction = to_target.normalize()
-                    self.pos += direction * self.passive_speed * dt
-                    self.moving = True
+                    desired_dir = pygame.Vector2(0, 0)
+                speed = self.chase_speed if self.is_chasing else self.passive_speed
+                steering = desired_dir * speed
+                self.velocity = self.velocity.lerp(steering, 0.18)
+                self.pos += self.velocity * dt
+                self.moving = self.velocity.length_squared() > 1e-4
+            else:
+                self.velocity *= 0.85
+                if not self.is_chasing:
+                    self.passive_target = None
+                    self.nav_goals = None
+                    self.nav_field = None
+        else:
+            self.velocity *= 0.85
+
+        if self.is_chasing and not self.moving:
+            self.stall_timer += dt
+            if self.stall_timer >= 1.25:
+                if self.hearing_target is not None:
+                    self.hearing_target = None
+                if self.smell_target is not None:
+                    self.smell_target = None
+                if self.last_seen is not None and self.vision_timer <= 0.1:
+                    self.last_seen = None
+                self.stall_timer = 0.0
+        else:
+            self.stall_timer = 0.0
 
         speed_factor = self.step_speed if self.moving else 1.0
         self.step_time += dt * speed_factor
         self.update_anchors(grid)
+
+    @staticmethod
+    def _pos_to_tile(pos):
+        return (int(pos[0] // TILE_SIZE), int(pos[1] // TILE_SIZE))
 
     def next_patrol_target(self):
         if not self.patrol_points:
