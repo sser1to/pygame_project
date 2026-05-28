@@ -49,3 +49,49 @@
 1. Передвижение монстра
 2. Рандомное появление предметов на карте
 3. Заполнение карты темнотой
+
+## Как начать
+
+1. Клонируем репозиторий
+
+```bash
+git clone https://github.com/sser1to/pygame_project
+```
+
+2. Создаем виртуальное окружение
+
+```bash
+python -m venv venv
+```
+
+3. Активируем виртуальное окружение
+
+- Windows PowerShell:
+
+```bash
+venv\Scripts\Activate.ps1
+```
+
+- Windows cmd:
+
+```bash
+venv\Scripts\activate
+```
+
+- Linux/macOS:
+
+```bash
+source venv/bin/activate
+```
+
+4. Устанавливаем зависимости
+
+```bash
+pip install -r requirements.txt
+```
+
+5. Запускаем игру
+
+```bash
+python main.py
+```

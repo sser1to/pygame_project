@@ -1,0 +1,715 @@
+import json
+import math
+import random
+
+import pygame
+
+from settings import (
+    CANDLE_LIGHT_RADIUS,
+    DARK_BLOB_COUNT,
+    DARK_BLOB_MIN_SIZE,
+    DARK_SAFE_RADIUS,
+    DARK_TILE_FRACTION,
+    DARK_OVERLAY_ALPHA,
+    HUNGER_RESTORE,
+    ITEM_APPLE,
+    ITEM_CANDLE,
+    ITEM_COAL,
+    ITEM_LEVER,
+    ITEM_STONE,
+    MONSTER_GRAB_RADIUS_TILES,
+    MONSTER_HEARING_RANGE_TILES,
+    MONSTER_KILL_RADIUS,
+    MONSTER_PATROL_COUNT,
+    MONSTER_PATROL_SAMPLE_SIZE,
+    MONSTER_SMELL_INTERVAL,
+    MONSTER_SMELL_RANGE_TILES,
+    MONSTER_SPAWN_MIN_DISTANCE,
+    MONSTER_SPAWN_SAFE_RADIUS,
+    SHADOW_BLUR_PASSES,
+    SHADOW_CORNER_RADIUS,
+    SHADOW_PAD,
+    STONE_THROW_SPEED,
+    TILE_FLOOR,
+    TILE_FURNACE,
+    TILE_SPAWN,
+    TILE_SIZE,
+    TILE_WALL,
+    TILE_WALL_TOP,
+    SCREEN_HEIGHT,
+    SCREEN_WIDTH,
+    SOLID_TILES,
+)
+from assets import soften_alpha_mask
+
+
+def load_map(path):
+    rows = []
+    with open(path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            row = [int(value) for value in line.split()]
+            rows.append(row)
+    if not rows:
+        raise ValueError("Map file is empty")
+    width = max(len(row) for row in rows)
+    for row in rows:
+        if len(row) < width:
+            row.extend([0] * (width - len(row)))
+    return rows
+
+
+def load_levels(path):
+    if not path.exists():
+        return []
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def get_level_config(levels, level_number):
+    for level in levels:
+        if level.get("level") == level_number:
+            return level
+    return {}
+
+
+def find_spawn_tile(grid):
+    for ty, row in enumerate(grid):
+        for tx, tile in enumerate(row):
+            if tile == TILE_SPAWN:
+                grid[ty][tx] = TILE_FLOOR
+                return (tx, ty)
+    return (1, 1)
+
+
+def collect_floor_tiles(grid):
+    tiles = []
+    for ty, row in enumerate(grid):
+        for tx, tile in enumerate(row):
+            if tile == TILE_FLOOR:
+                tiles.append((tx, ty))
+    return tiles
+
+
+def adjacent_tiles(tile):
+    tx, ty = tile
+    return [(tx + 1, ty), (tx - 1, ty), (tx, ty + 1), (tx, ty - 1)]
+
+
+def tile_in_bounds(grid, tile):
+    tx, ty = tile
+    return 0 <= ty < len(grid) and 0 <= tx < len(grid[0])
+
+
+def tile_is_placeable(grid, tile):
+    if not tile_in_bounds(grid, tile):
+        return False
+    tx, ty = tile
+    return grid[ty][tx] == TILE_FLOOR
+
+
+def tile_is_furnace(grid, tile):
+    if not tile_in_bounds(grid, tile):
+        return False
+    tx, ty = tile
+    return grid[ty][tx] == TILE_FURNACE
+
+
+def tile_blocks_vision(grid, tile):
+    if not tile_in_bounds(grid, tile):
+        return True
+    return grid[tile[1]][tile[0]] in (TILE_WALL, TILE_WALL_TOP, TILE_FURNACE)
+
+
+def get_player_tile(player):
+    return (player.rect.centerx // TILE_SIZE, player.rect.centery // TILE_SIZE)
+
+
+def player_on_tile(player, tile):
+    tile_rect = pygame.Rect(tile[0] * TILE_SIZE, tile[1] * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+    return player.rect.colliderect(tile_rect)
+
+
+def direction_to_offset(direction):
+    if direction.length_squared() == 0:
+        return (0, 0)
+    if abs(direction.x) >= abs(direction.y):
+        return (1 if direction.x > 0 else -1, 0)
+    return (0, 1 if direction.y > 0 else -1)
+
+
+def is_solid(tile):
+    return tile in SOLID_TILES
+
+
+def iter_solid_tiles(grid, rect):
+    rows = len(grid)
+    cols = len(grid[0])
+    left = max(0, rect.left // TILE_SIZE)
+    right = min(cols - 1, (rect.right - 1) // TILE_SIZE)
+    top = max(0, rect.top // TILE_SIZE)
+    bottom = min(rows - 1, (rect.bottom - 1) // TILE_SIZE)
+    for ty in range(top, bottom + 1):
+        for tx in range(left, right + 1):
+            tile = grid[ty][tx]
+            if is_solid(tile):
+                yield pygame.Rect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+
+
+def tile_to_world_center(tile):
+    return (
+        tile[0] * TILE_SIZE + TILE_SIZE / 2,
+        tile[1] * TILE_SIZE + TILE_SIZE / 2,
+    )
+
+
+def collect_floor_tiles(grid):
+    tiles = []
+    for ty, row in enumerate(grid):
+        for tx, tile in enumerate(row):
+            if tile == TILE_FLOOR:
+                tiles.append((tx, ty))
+    return tiles
+
+
+def grow_dark_blob(seed, target_size, available):
+    blob = {seed}
+    frontier = [seed]
+    available.remove(seed)
+    while frontier and len(blob) < target_size:
+        current = random.choice(frontier)
+        neighbors = [tile for tile in adjacent_tiles(current) if tile in available]
+        if not neighbors:
+            frontier.remove(current)
+            continue
+        next_tile = random.choice(neighbors)
+        blob.add(next_tile)
+        available.remove(next_tile)
+        frontier.append(next_tile)
+    return blob
+
+
+def build_dark_tiles(grid, spawn_tile, darkness_amount):
+    if darkness_amount <= 0:
+        return set()
+    floor_tiles = collect_floor_tiles(grid)
+    safe_tiles = [
+        tile
+        for tile in floor_tiles
+        if abs(tile[0] - spawn_tile[0]) + abs(tile[1] - spawn_tile[1]) > DARK_SAFE_RADIUS
+    ]
+    if not safe_tiles:
+        return set()
+    fraction = DARK_TILE_FRACTION * max(0, darkness_amount)
+    total = int(len(safe_tiles) * fraction)
+    if total <= 0:
+        return set()
+    total = min(total, len(safe_tiles))
+    blob_count = min(DARK_BLOB_COUNT, max(1, total // DARK_BLOB_MIN_SIZE))
+    remaining = total
+    available = set(safe_tiles)
+    dark_tiles = set()
+    for index in range(blob_count):
+        if not available:
+            break
+        blobs_left = blob_count - index
+        target = max(DARK_BLOB_MIN_SIZE, remaining // blobs_left)
+        target = min(target, len(available))
+        seed = random.choice(tuple(available))
+        blob = grow_dark_blob(seed, target, available)
+        dark_tiles.update(blob)
+        remaining -= len(blob)
+    return dark_tiles
+
+
+def build_patrol_points(grid, count, sample_size):
+    floor_tiles = collect_floor_tiles(grid)
+    if not floor_tiles:
+        return []
+
+    rng = random.Random()
+    points = [rng.choice(floor_tiles)]
+    while len(points) < min(count, len(floor_tiles)):
+        candidates = rng.sample(floor_tiles, min(sample_size, len(floor_tiles)))
+        best_tile = None
+        best_dist = -1
+        for cand in candidates:
+            dist = min((cand[0] - p[0]) ** 2 + (cand[1] - p[1]) ** 2 for p in points)
+            if dist > best_dist:
+                best_dist = dist
+                best_tile = cand
+        points.append(best_tile)
+
+    return [tile_to_world_center(tile) for tile in points]
+
+
+def spawn_items(grid, spawn_tile, items_counts, objectives):
+    from entities import Item
+
+    floor_tiles = collect_floor_tiles(grid)
+    available = [tile for tile in floor_tiles if tile != spawn_tile]
+    random.shuffle(available)
+    items = []
+
+    candle_count = items_counts.get("candles", 1)
+    stone_count = items_counts.get("stones", 0)
+    food_count = items_counts.get("food", 0)
+    coal_count = objectives.get("coal", 0)
+    lever_count = objectives.get("levers", 0)
+    spawn_plan = [
+        (ITEM_COAL, coal_count),
+        (ITEM_CANDLE, candle_count),
+        (ITEM_APPLE, food_count),
+        (ITEM_LEVER, lever_count),
+        (ITEM_STONE, stone_count),
+    ]
+
+    for kind, count in spawn_plan:
+        for _ in range(count):
+            if not available:
+                break
+            items.append(Item(kind, available.pop()))
+    return items
+
+
+def pick_monster_spawn(grid, player_tile):
+    floor_tiles = collect_floor_tiles(grid)
+    far_tiles = [
+        tile
+        for tile in floor_tiles
+        if abs(tile[0] - player_tile[0]) + abs(tile[1] - player_tile[1]) > MONSTER_SPAWN_SAFE_RADIUS
+    ]
+    if not far_tiles:
+        far_tiles = floor_tiles
+    return random.choice(far_tiles)
+
+
+def pick_monster_spawns(grid, player_tile, count):
+    if count <= 0:
+        return []
+    floor_tiles = collect_floor_tiles(grid)
+    candidates = [
+        tile
+        for tile in floor_tiles
+        if abs(tile[0] - player_tile[0]) + abs(tile[1] - player_tile[1]) > MONSTER_SPAWN_SAFE_RADIUS
+    ]
+    if not candidates:
+        candidates = floor_tiles[:]
+
+    rng = random.Random()
+    rng.shuffle(candidates)
+    spawns = []
+
+    def far_enough(tile):
+        return all(
+            abs(tile[0] - other[0]) + abs(tile[1] - other[1]) >= MONSTER_SPAWN_MIN_DISTANCE
+            for other in spawns
+        )
+
+    for tile in candidates:
+        if len(spawns) >= count:
+            break
+        if far_enough(tile):
+            spawns.append(tile)
+
+    if len(spawns) < count:
+        for tile in candidates:
+            if len(spawns) >= count:
+                break
+            if tile not in spawns:
+                spawns.append(tile)
+
+    return spawns[:count]
+
+
+def get_wall_tiles_near(grid, center_tile, radius):
+    rows = len(grid)
+    cols = len(grid[0])
+    tiles = []
+    for ty in range(max(0, center_tile[1] - radius), min(rows - 1, center_tile[1] + radius) + 1):
+        for tx in range(max(0, center_tile[0] - radius), min(cols - 1, center_tile[0] + radius) + 1):
+            if grid[ty][tx] in (TILE_WALL, TILE_WALL_TOP):
+                tiles.append((tx, ty))
+    return tiles
+
+
+def bresenham_line(start_tile, end_tile):
+    x0, y0 = start_tile
+    x1, y1 = end_tile
+    dx = abs(x1 - x0)
+    dy = -abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    err = dx + dy
+    while True:
+        yield (x0, y0)
+        if x0 == x1 and y0 == y1:
+            break
+        e2 = 2 * err
+        if e2 >= dy:
+            err += dy
+            x0 += sx
+        if e2 <= dx:
+            err += dx
+            y0 += sy
+
+
+def has_line_of_sight(grid, start_pos, end_pos):
+    start_tile = (int(start_pos[0] // TILE_SIZE), int(start_pos[1] // TILE_SIZE))
+    end_tile = (int(end_pos[0] // TILE_SIZE), int(end_pos[1] // TILE_SIZE))
+    for tile in bresenham_line(start_tile, end_tile):
+        if tile == start_tile or tile == end_tile:
+            continue
+        if tile_blocks_vision(grid, tile):
+            return False
+    return True
+
+
+def pick_arm_targets(wall_tiles, monster_pos):
+    if not wall_tiles:
+        return None, None
+
+    world_positions = [tile_to_world_center(tile) for tile in wall_tiles]
+
+    def distance_sq(pos):
+        return (pos[0] - monster_pos.x) ** 2 + (pos[1] - monster_pos.y) ** 2
+
+    left_candidates = [pos for pos in world_positions if pos[0] <= monster_pos.x]
+    right_candidates = [pos for pos in world_positions if pos[0] >= monster_pos.x]
+
+    left = min(left_candidates, key=distance_sq) if left_candidates else None
+    right = min(right_candidates, key=distance_sq) if right_candidates else None
+
+    if left is None:
+        left = min(world_positions, key=distance_sq)
+    if right is None:
+        right = min((pos for pos in world_positions if pos != left), key=distance_sq, default=left)
+    if left == right:
+        alternate = min((pos for pos in world_positions if pos != left), key=distance_sq, default=left)
+        right = alternate
+
+    return left, right
+
+
+def get_light_tiles(center_tile, radius):
+    if radius <= 0:
+        return set()
+    cx, cy = center_tile
+    light_tiles = set()
+    for dx in range(-radius, radius + 1):
+        for dy in range(-radius, radius + 1):
+            if max(abs(dx), abs(dy)) > radius:
+                continue
+            tile = (cx + dx, cy + dy)
+            light_tiles.add(tile)
+    return light_tiles
+
+
+def get_candle_light_tiles(items, player):
+    light_tiles = set()
+    if player.carrying == ITEM_CANDLE:
+        light_tiles.update(get_light_tiles(get_player_tile(player), CANDLE_LIGHT_RADIUS))
+    for item in items:
+        if item.kind == ITEM_CANDLE:
+            light_tiles.update(get_light_tiles(item.tile, CANDLE_LIGHT_RADIUS))
+    return light_tiles
+
+
+def get_candle_visibility_tiles(items, player):
+    visibility_tiles = set()
+    visibility_radius = CANDLE_LIGHT_RADIUS + 1
+    if player.carrying == ITEM_CANDLE:
+        visibility_tiles.update(get_light_tiles(get_player_tile(player), visibility_radius))
+    for item in items:
+        if item.kind == ITEM_CANDLE:
+            visibility_tiles.update(get_light_tiles(item.tile, visibility_radius))
+    return visibility_tiles
+
+
+def get_candle_centers(player, items):
+    centers = []
+    if player.carrying == ITEM_CANDLE:
+        centers.append((player.rect.centerx, player.rect.centery))
+    for item in items:
+        if item.kind != ITEM_CANDLE:
+            continue
+        centers.append(
+            (
+                item.tile[0] * TILE_SIZE + TILE_SIZE // 2,
+                item.tile[1] * TILE_SIZE + TILE_SIZE // 2,
+            )
+        )
+    return centers
+
+
+def item_is_visible(item_tile, dark_tiles, visibility_tiles):
+    return item_tile not in dark_tiles or item_tile in visibility_tiles
+
+
+def get_item_at(items, tile):
+    for item in items:
+        if item.tile == tile:
+            return item
+    return None
+
+
+def emit_sound(sound_events, tile):
+    sound_events.append(pygame.Vector2(tile_to_world_center(tile)))
+
+
+def get_furnace_rect(grid, tile):
+    tx, ty = tile
+    if not tile_in_bounds(grid, tile) or grid[ty][tx] != TILE_FURNACE:
+        return None
+    left_tx = tx
+    if tile_in_bounds(grid, (tx - 1, ty)) and grid[ty][tx - 1] == TILE_FURNACE:
+        left_tx = tx - 1
+    width = TILE_SIZE * (
+        2 if tile_in_bounds(grid, (left_tx + 1, ty)) and grid[ty][left_tx + 1] == TILE_FURNACE else 1
+    )
+    return pygame.Rect(left_tx * TILE_SIZE, ty * TILE_SIZE, width, TILE_SIZE)
+
+
+def throw_stone(grid, items, start_tile, direction):
+    last_valid = start_tile
+    for step in range(1, 4):
+        tile = (start_tile[0] + direction[0] * step, start_tile[1] + direction[1] * step)
+        if not tile_in_bounds(grid, tile):
+            break
+        if grid[tile[1]][tile[0]] in (TILE_WALL, TILE_WALL_TOP, TILE_FURNACE):
+            break
+        if get_item_at(items, tile) is not None:
+            break
+        last_valid = tile
+
+    if last_valid == start_tile and get_item_at(items, last_valid) is not None:
+        return None
+    return last_valid
+
+
+def handle_interaction(
+    player,
+    items,
+    grid,
+    sound_events,
+    stone_projectiles,
+    stone_sprite,
+    dark_tiles=None,
+    sfx=None,
+):
+    from entities import Item, StoneProjectile
+
+    player_tile = get_player_tile(player)
+    offset = direction_to_offset(player.last_dir)
+    target_tile = (player_tile[0] + offset[0], player_tile[1] + offset[1]) if offset != (0, 0) else None
+    if player.carrying:
+        if offset == (0, 0):
+            return False, False
+        if player.carrying == ITEM_COAL and target_tile and tile_is_furnace(grid, target_tile):
+            player.carrying = None
+            emit_sound(sound_events, target_tile)
+            if sfx is not None:
+                sfx["furnace"].play()
+            return False, True
+        if player.carrying == ITEM_STONE:
+            landing_tile = throw_stone(grid, items, player_tile, offset)
+            if landing_tile is not None:
+                if landing_tile == player_tile:
+                    items.append(Item(ITEM_STONE, landing_tile))
+                    emit_sound(sound_events, landing_tile)
+                else:
+                    stone_projectiles.append(
+                        StoneProjectile(
+                            player.rect.center,
+                            tile_to_world_center(landing_tile),
+                            stone_sprite,
+                            landing_tile,
+                        )
+                    )
+            player.carrying = None
+            return False, False
+        if target_tile and tile_is_placeable(grid, target_tile) and get_item_at(items, target_tile) is None:
+            items.append(Item(player.carrying, target_tile))
+            player.carrying = None
+        return False, False
+
+    candidate_tiles = [player_tile] + adjacent_tiles(player_tile)
+    for tile in candidate_tiles:
+        item = get_item_at(items, tile)
+        if item is None:
+            continue
+        if item.kind == ITEM_LEVER:
+            if item.active:
+                continue
+            item.active = True
+            emit_sound(sound_events, tile)
+            if sfx is not None:
+                sfx["lever"].play()
+        elif item.kind == ITEM_APPLE:
+            items.remove(item)
+            if sfx is not None:
+                sfx["pickup"].play()
+            return True, False
+        else:
+            player.carrying = item.kind
+            items.remove(item)
+            if sfx is not None:
+                sfx["pickup"].play()
+        return False, False
+    return False, False
+
+
+def compute_camera(player_rect, map_size_px):
+    map_w, map_h = map_size_px
+    cam_x = player_rect.centerx - SCREEN_WIDTH // 2
+    cam_y = player_rect.centery - SCREEN_HEIGHT // 2
+    cam_x = max(0, min(cam_x, map_w - SCREEN_WIDTH))
+    cam_y = max(0, min(cam_y, map_h - SCREEN_HEIGHT))
+    return pygame.Vector2(cam_x, cam_y)
+
+
+def draw_map(screen, grid, assets, offset):
+    rows = len(grid)
+    cols = len(grid[0])
+    skipped_furnace = set()
+    for ty in range(rows):
+        for tx in range(cols):
+            tile = grid[ty][tx]
+            if tile == 0:
+                continue
+            world_x = tx * TILE_SIZE
+            world_y = ty * TILE_SIZE
+            if tile == TILE_FURNACE:
+                if (tx, ty) in skipped_furnace:
+                    continue
+                if tx + 1 < cols and grid[ty][tx + 1] == TILE_FURNACE:
+                    screen.blit(assets["floor"], (world_x - offset.x, world_y - offset.y))
+                    screen.blit(assets["floor"], (world_x + TILE_SIZE - offset.x, world_y - offset.y))
+                    screen.blit(assets["furnace"], (world_x - offset.x, world_y - offset.y))
+                    skipped_furnace.add((tx + 1, ty))
+                    continue
+
+            screen.blit(assets["floor"], (world_x - offset.x, world_y - offset.y))
+
+            if tile == TILE_WALL:
+                screen.blit(assets["wall"], (world_x - offset.x, world_y - offset.y))
+            elif tile == TILE_WALL_TOP:
+                screen.blit(assets["wall_top"], (world_x - offset.x, world_y - offset.y))
+            elif tile == TILE_FURNACE:
+                screen.blit(assets["furnace_single"], (world_x - offset.x, world_y - offset.y))
+
+
+def draw_items(screen, items, assets, offset, dark_tiles=None, visibility_tiles=None):
+    for item in items:
+        if dark_tiles is not None and visibility_tiles is not None and not item_is_visible(item.tile, dark_tiles, visibility_tiles):
+            continue
+        item.draw(screen, assets, offset)
+
+
+def draw_item_outlines(screen, items, assets, outlines, offset, player, dark_tiles=None, visibility_tiles=None):
+    from entities import get_item_outline_key, get_item_sprite
+
+    player_tile = get_player_tile(player)
+    can_pick = player.carrying is None
+    pickable_tiles = [player_tile] + adjacent_tiles(player_tile)
+    candidate = None
+    candidate_dist = None
+    player_center = player.rect.center
+    for item in items:
+        if dark_tiles is not None and visibility_tiles is not None and not item_is_visible(item.tile, dark_tiles, visibility_tiles):
+            continue
+        if item.tile not in pickable_tiles:
+            continue
+        if item.kind == ITEM_LEVER and item.active:
+            continue
+        if item.kind != ITEM_LEVER and not can_pick:
+            continue
+        tile_center = (
+            item.tile[0] * TILE_SIZE + TILE_SIZE // 2,
+            item.tile[1] * TILE_SIZE + TILE_SIZE // 2,
+        )
+        dist = (tile_center[0] - player_center[0]) ** 2 + (tile_center[1] - player_center[1]) ** 2
+        if candidate is None or dist < candidate_dist:
+            candidate = item
+            candidate_dist = dist
+
+    if candidate is None:
+        return
+    outline_key = get_item_outline_key(candidate)
+    outline = outlines.get(outline_key)
+    if outline is None:
+        return
+    sprite = get_item_sprite(candidate, assets)
+    world_x = candidate.tile[0] * TILE_SIZE + (TILE_SIZE - sprite.get_width()) // 2
+    world_y = candidate.tile[1] * TILE_SIZE + (TILE_SIZE - sprite.get_height()) // 2
+    screen.blit(outline, (world_x - offset.x, world_y - offset.y))
+
+
+def draw_furnace_outline(screen, grid, player, offset):
+    if player.carrying != ITEM_COAL:
+        return
+    offset_dir = direction_to_offset(player.last_dir)
+    if offset_dir == (0, 0):
+        return
+    player_tile = get_player_tile(player)
+    target = (player_tile[0] + offset_dir[0], player_tile[1] + offset_dir[1])
+    rect = get_furnace_rect(grid, target)
+    if rect is None:
+        return
+    outline_rect = pygame.Rect(rect.x - offset.x, rect.y - offset.y, rect.width, rect.height)
+    pygame.draw.rect(screen, (80, 140, 200), outline_rect, 2)
+
+
+def draw_carried_item(screen, player, assets, offset):
+    if not player.carrying:
+        return
+    sprite = assets[player.carrying]
+    world_x = player.rect.centerx - sprite.get_width() // 2
+    world_y = player.rect.centery - sprite.get_height() // 2
+    screen.blit(sprite, (world_x - offset.x, world_y - offset.y))
+
+
+def draw_projectiles(screen, projectiles, offset):
+    for projectile in projectiles:
+        projectile.draw(screen, offset)
+
+
+def draw_darkness(screen, dark_tiles, overlay, candle_centers, offset):
+    darkness = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    for tx, ty in dark_tiles:
+        world_x = tx * TILE_SIZE - offset.x
+        world_y = ty * TILE_SIZE - offset.y
+        rect = pygame.Rect(
+            world_x - SHADOW_PAD,
+            world_y - SHADOW_PAD,
+            TILE_SIZE + SHADOW_PAD * 2,
+            TILE_SIZE + SHADOW_PAD * 2,
+        )
+        pygame.draw.rect(
+            darkness,
+            (0, 0, 0, DARK_OVERLAY_ALPHA),
+            rect,
+            border_radius=SHADOW_CORNER_RADIUS + SHADOW_PAD,
+        )
+
+    candle_radius = int((CANDLE_LIGHT_RADIUS + 0.5) * TILE_SIZE)
+    for candle_center in candle_centers:
+        screen_pos = (int(candle_center[0] - offset.x), int(candle_center[1] - offset.y))
+        pygame.draw.circle(darkness, (0, 0, 0, 0), screen_pos, candle_radius)
+
+    darkness = soften_alpha_mask(darkness, SHADOW_BLUR_PASSES)
+    screen.blit(darkness, (0, 0))
+
+
+def blit_zoomed_world(screen, world_surface, zoom):
+    if zoom <= 1.0:
+        screen.blit(world_surface, (0, 0))
+        return
+    width, height = world_surface.get_size()
+    zoomed_size = (int(width * zoom), int(height * zoom))
+    zoomed_surface = pygame.transform.smoothscale(world_surface, zoomed_size)
+    offset_x = (width - zoomed_size[0]) // 2
+    offset_y = (height - zoomed_size[1]) // 2
+    screen.blit(zoomed_surface, (offset_x, offset_y))
