@@ -2,6 +2,7 @@ import heapq
 import json
 import math
 import random
+from pathlib import Path
 
 import pygame
 
@@ -22,6 +23,7 @@ from settings import (
     ITEM_SPAWN_ATTEMPTS,
     ITEM_SPAWN_SAMPLES,
     ITEM_STONE,
+    LEVEL_COUNT,
     MONSTER_PATROL_COUNT,
     MONSTER_PATROL_SAMPLE_SIZE,
     MONSTER_SPAWN_MIN_DISTANCE,
@@ -72,6 +74,29 @@ def get_level_config(levels, level_number):
         if level.get("level") == level_number:
             return level
     return {}
+
+
+SAVE_PATH = Path(__file__).with_name("save.json")
+
+
+def load_progress():
+    default = 1
+    try:
+        if SAVE_PATH.exists():
+            with open(SAVE_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return max(1, min(int(data.get("unlocked_level", default)), LEVEL_COUNT))
+    except (json.JSONDecodeError, OSError, ValueError):
+        pass
+    return default
+
+
+def save_progress(unlocked_level):
+    try:
+        with open(SAVE_PATH, "w", encoding="utf-8") as f:
+            json.dump({"unlocked_level": unlocked_level}, f)
+    except OSError:
+        pass
 
 
 def find_spawn_tile(grid):

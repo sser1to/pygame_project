@@ -23,6 +23,9 @@ from settings import (
     MENU_ACCENT,
     MENU_BG,
     MENU_DIM,
+    MENU_LOCKED,
+    MENU_LOCKED_DIM,
+    MENU_LOCKED_TEXT,
     MENU_TEXT,
     PLAYER_LIGHT_ALPHA,
     SPOTLIGHT_ALPHA,
@@ -545,7 +548,7 @@ def run_guide_screen(screen, clock):
         pygame.display.flip()
 
 
-def run_menu(screen, clock, initial_level):
+def run_menu(screen, clock, initial_level, unlocked_level):
     title_font = pygame.font.SysFont(None, 72)
     label_font = pygame.font.SysFont(None, 36)
     button_font = pygame.font.SysFont(None, 32)
@@ -577,8 +580,9 @@ def run_menu(screen, clock, initial_level):
                     selected_button = (selected_button + 1) % 3
                 if event.key == pygame.K_RETURN:
                     if selected_button == 0:
-                        return selected_level
-                    if selected_button == 1:
+                        if selected_level <= unlocked_level:
+                            return selected_level
+                    elif selected_button == 1:
                         guide_result = run_guide_screen(screen, clock)
                         if guide_result == "quit":
                             return None
@@ -597,7 +601,9 @@ def run_menu(screen, clock, initial_level):
         level_label_rect = level_label.get_rect(center=(width // 2, height // 2 - 80))
         screen.blit(level_label, level_label_rect)
 
-        level_text = title_font.render(str(selected_level), True, MENU_TEXT)
+        is_locked = selected_level > unlocked_level
+        level_color = MENU_DIM if is_locked else MENU_TEXT
+        level_text = title_font.render(str(selected_level), True, level_color)
         level_rect = level_text.get_rect(center=(width // 2, height // 2 - 10))
         screen.blit(level_text, level_rect)
 
@@ -606,10 +612,24 @@ def run_menu(screen, clock, initial_level):
         screen.blit(left_arrow, left_arrow.get_rect(center=(width // 2 - 90, height // 2 - 10)))
         screen.blit(right_arrow, right_arrow.get_rect(center=(width // 2 + 90, height // 2 - 10)))
 
+        if is_locked:
+            lock_label = pygame.font.SysFont(None, 22).render("Пройдите предыдущий уровень", True, MENU_LOCKED_TEXT)
+            lock_rect = lock_label.get_rect(center=(width // 2, height // 2 + 40))
+            screen.blit(lock_label, lock_rect)
+
         buttons = [("Начать", 0), ("Гайд", 1), ("Выход", 2)]
         for label, index in buttons:
-            text_color = MENU_TEXT if selected_button == index else MENU_DIM
-            rect_color = MENU_ACCENT if selected_button == index else MENU_DIM
+            disabled = index == 0 and is_locked
+            if is_locked and index == 0:
+                if selected_button == index:
+                    text_color = (90, 90, 110)
+                    rect_color = MENU_LOCKED
+                else:
+                    text_color = MENU_DIM
+                    rect_color = MENU_DIM
+            else:
+                text_color = MENU_TEXT if selected_button == index else MENU_DIM
+                rect_color = MENU_ACCENT if selected_button == index else MENU_DIM
             text_surface = button_font.render(label, True, text_color)
             button_rect = pygame.Rect(0, 0, 200, 46)
             button_rect.center = (width // 2, height // 2 + 90 + index * 64)

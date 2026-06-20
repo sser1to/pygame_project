@@ -5,6 +5,7 @@ from entities import Item, Monster, Player, build_item_outlines
 from settings import (
     AMBIENT_VOLUME,
     CHASE_VOLUME,
+    LEVEL_COUNT,
     COLD_MAX,
     COLD_RATE,
     COLD_RECOVERY_RATE,
@@ -87,7 +88,9 @@ from world import (
     handle_interaction,
     load_levels,
     load_map,
+    load_progress,
     pick_monster_spawns,
+    save_progress,
     spawn_items,
 )
 
@@ -380,7 +383,7 @@ def run_game(screen, clock, level_number):
             pygame.event.clear()
             snapshot = screen.copy()
             result = run_message_screen(screen, clock, "Вы прошли уровень!", snapshot)
-            return "quit" if result == "quit" else "menu"
+            return "quit" if result == "quit" else "complete"
     return "menu"
 
 
@@ -390,10 +393,11 @@ def main():
     clock = pygame.time.Clock()
     pygame.mouse.set_visible(False)
 
-    last_selected_level = CURRENT_LEVEL
+    unlocked_level = load_progress()
+    last_selected_level = unlocked_level
 
     while True:
-        selected_level = run_menu(screen, clock, last_selected_level)
+        selected_level = run_menu(screen, clock, last_selected_level, unlocked_level)
         if selected_level is None:
             break
         last_selected_level = selected_level
@@ -402,6 +406,12 @@ def main():
             if result == "restart":
                 continue
             if result == "menu":
+                break
+            if result == "complete":
+                if selected_level >= unlocked_level and selected_level < LEVEL_COUNT:
+                    unlocked_level = selected_level + 1
+                    save_progress(unlocked_level)
+                    last_selected_level = unlocked_level
                 break
             if result == "quit":
                 pygame.quit()
