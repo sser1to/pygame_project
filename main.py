@@ -18,6 +18,7 @@ from settings import (
     HUNGER_MAX,
     HUNGER_RATE,
     HUNGER_RESTORE,
+    INTRO_CHAR_RATE,
     ITEM_APPLE,
     ITEM_CANDLE,
     ITEM_COAL,
@@ -52,6 +53,7 @@ from settings import (
     SOUNDS_DIR,
     TEXTURES_DIR,
     TILE_SIZE,
+    TILE_FURNACE,
 )
 from ui import (
     draw_chase_pulse,
@@ -64,6 +66,7 @@ from ui import (
     draw_objectives,
     draw_spotlight,
     draw_vignette,
+    run_credits_screen,
     run_level_intro,
     run_message_screen,
     run_menu,
@@ -76,6 +79,7 @@ from world import (
     compute_camera,
     draw_carried_item,
     draw_darkness,
+    draw_exit_glow,
     draw_furnace_outline,
     draw_item_outlines,
     draw_items,
@@ -83,6 +87,7 @@ from world import (
     draw_projectiles,
     emit_sound,
     find_spawn_tile,
+    get_all_furnace_rects,
     get_candle_centers,
     get_candle_light_tiles,
     get_candle_visibility_tiles,
@@ -237,6 +242,8 @@ def run_game(screen, clock, level_number):
         monster_pos = (tile[0] * TILE_SIZE + TILE_SIZE / 2, tile[1] * TILE_SIZE + TILE_SIZE / 2)
         monsters.append(Monster(monster_pos, monster_assets, patrol_points))
     stone_projectiles = []
+    exit_notification_timer = 0.0
+    exit_was_unlocked = False
 
     running = True
     while running:
@@ -286,7 +293,7 @@ def run_game(screen, clock, level_number):
                                 return "quit"
 
         if not dead:
-            player.update(dt, grid, map_size_px)
+            player.update(dt, grid, map_size_px, {TILE_FURNACE} if (level_number == 7 and exit_was_unlocked) else None)
             if player.moving and not footstep_active:
                 footstep_channel.play(walk_sound, loops=-1, fade_ms=FOOTSTEP_FADE_MS)
                 footstep_active = True
@@ -352,7 +359,20 @@ def run_game(screen, clock, level_number):
         if not dead:
             coal_done = coal_required <= 0 or coal_loaded >= coal_required
             levers_done = levers_required <= 0 or levers_active >= levers_required
-            level_complete = coal_done and levers_done
+
+            if level_number == 7:
+                now_unlocked = coal_done and levers_done
+                if now_unlocked and not exit_was_unlocked:
+                    exit_notification_timer = 0.0
+                exit_was_unlocked = now_unlocked
+
+                if now_unlocked:
+                    for furnace_rect in get_all_furnace_rects(grid):
+                        if player.rect.colliderect(furnace_rect):
+                            level_complete = True
+                            break
+            else:
+                level_complete = coal_done and levers_done
 
         screen = pygame.display.get_surface() or screen
         screen.fill((10, 10, 14))
@@ -369,6 +389,8 @@ def run_game(screen, clock, level_number):
             monster.draw(world_surface, camera)
         draw_item_outlines(world_surface, items, item_assets, item_outlines, camera, player, dark_tiles, visibility_tiles)
         draw_furnace_outline(world_surface, grid, player, camera)
+        if level_number == 7 and exit_was_unlocked:
+            draw_exit_glow(world_surface, grid, camera)
         draw_dust(world_surface, camera, dt)
         screen.blit(world_surface, (0, 0))
 
@@ -385,6 +407,20 @@ def run_game(screen, clock, level_number):
             draw_hunger_bar(screen, hunger_value)
         draw_objectives(screen, hud_font, coal_loaded, coal_required, levers_active, levers_required)
         draw_hunger_distortion(screen, hunger_value, dt)
+
+        if exit_was_unlocked:
+            NOTIF_TEXT = "Выход разблокирован"
+            total_notif = len(NOTIF_TEXT)
+            typing_time = total_notif / INTRO_CHAR_RATE
+            hold_time = 1.5
+            if exit_notification_timer < typing_time + hold_time:
+                exit_notification_timer += dt
+                visible = min(total_notif, int(exit_notification_timer * INTRO_CHAR_RATE))
+                notif_font = pygame.font.SysFont(None, 56)
+                notif_surf = notif_font.render(NOTIF_TEXT[:visible], True, (255, 255, 255))
+                notif_rect = notif_surf.get_rect(center=(screen.get_width() // 2, screen.get_height() // 4))
+                screen.blit(notif_surf, notif_rect)
+
         pygame.display.flip()
 
         if dead:
@@ -423,10 +459,17 @@ def main():
             if result == "menu":
                 break
             if result == "complete":
-                if selected_level >= unlocked_level and selected_level < LEVEL_COUNT:
-                    unlocked_level = selected_level + 1
+                if selected_level >= unlocked_level:
+                    unlocked_level = min(selected_level + 1, LEVEL_COUNT)
                     save_progress(unlocked_level)
                     last_selected_level = unlocked_level
+                if selected_level < LEVEL_COUNT:
+                    selected_level += 1
+                    continue
+                else:
+                    if run_credits_screen(screen, clock) == "quit":
+                        pygame.quit()
+                        return
                 break
             if result == "quit":
                 pygame.quit()

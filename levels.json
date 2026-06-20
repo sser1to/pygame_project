@@ -148,7 +148,7 @@
     "debuffs": {
       "freezing": true,
       "hunger": true,
-      "darkness_amount": 4
+      "darkness_amount": 3
     },
     "items": {
       "candles": 4,

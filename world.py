@@ -189,7 +189,7 @@ def is_solid(tile):
     return tile in SOLID_TILES
 
 
-def iter_solid_tiles(grid, rect):
+def iter_solid_tiles(grid, rect, skip_tiles=None):
     rows = len(grid)
     cols = len(grid[0])
     left = max(0, rect.left // TILE_SIZE)
@@ -200,6 +200,8 @@ def iter_solid_tiles(grid, rect):
         for tx in range(left, right + 1):
             tile = grid[ty][tx]
             if is_solid(tile):
+                if skip_tiles is not None and tile in skip_tiles:
+                    continue
                 yield pygame.Rect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
 
 
@@ -742,6 +744,39 @@ def get_furnace_rect(grid, tile):
         2 if tile_in_bounds(grid, (left_tx + 1, ty)) and grid[ty][left_tx + 1] == TILE_FURNACE else 1
     )
     return pygame.Rect(left_tx * TILE_SIZE, ty * TILE_SIZE, width, TILE_SIZE)
+
+
+def get_all_furnace_rects(grid):
+    rows = len(grid)
+    cols = len(grid[0])
+    visited = set()
+    rects = []
+    for ty in range(rows):
+        for tx in range(cols):
+            if (tx, ty) in visited:
+                continue
+            if grid[ty][tx] == TILE_FURNACE:
+                rect = get_furnace_rect(grid, (tx, ty))
+                if rect is not None:
+                    rects.append(rect)
+                    left_tx = rect.x // TILE_SIZE
+                    for vx in range(rect.width // TILE_SIZE):
+                        visited.add((left_tx + vx, ty))
+    return rects
+
+
+def draw_exit_glow(screen, grid, offset):
+    rects = get_all_furnace_rects(grid)
+    t = pygame.time.get_ticks() / 1000.0
+    pulse = 0.85 + 0.15 * abs(math.sin(t * 2.5))
+    for rect in rects:
+        screen_rect = pygame.Rect(rect.x - offset.x, rect.y - offset.y, rect.width, rect.height)
+        glow = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+        alpha = int(220 * pulse)
+        glow.fill((255, 255, 255, alpha))
+        screen.blit(glow, screen_rect)
+        border_alpha = int(200 * pulse)
+        pygame.draw.rect(screen, (255, 255, 255, border_alpha), screen_rect, 3)
 
 
 def throw_stone(grid, items, start_tile, direction):

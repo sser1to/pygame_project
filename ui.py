@@ -639,6 +639,74 @@ def run_note_screen(screen, clock, title, text, background=None):
         pygame.display.flip()
 
 
+def run_credits_screen(screen, clock):
+    font = pygame.font.SysFont(None, 36)
+    lines = [
+        "Вы смогли выбраться из злополучного цикла.",
+        "",
+        "Спасибо за прохождение игры!",
+    ]
+    full_text = "\n".join(lines)
+    total_chars = len(full_text)
+    if total_chars <= 0:
+        return "done"
+
+    visible_chars = 0.0
+    typing_done = False
+    hold_timer = 0.0
+    hold_duration = 5
+
+    while True:
+        dt = clock.tick(60) / 1000.0
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
+                screen = toggle_fullscreen()
+                continue
+            if event.type == pygame.KEYDOWN and event.key in (
+                pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_ESCAPE,
+            ):
+                if typing_done:
+                    return "done"
+                visible_chars = float(total_chars)
+                typing_done = True
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if typing_done:
+                    return "done"
+                visible_chars = float(total_chars)
+                typing_done = True
+
+        if not typing_done:
+            visible_chars = min(float(total_chars), visible_chars + INTRO_CHAR_RATE * dt)
+            if visible_chars >= total_chars:
+                typing_done = True
+        else:
+            hold_timer += dt
+            if hold_timer >= hold_duration:
+                return "done"
+
+        screen = pygame.display.get_surface() or screen
+        screen.fill((0, 0, 0))
+
+        width, height = screen.get_size()
+        shown = full_text[:int(visible_chars)]
+        rendered_lines = shown.split("\n")
+
+        line_height = font.get_linesize() + 8
+        total_text_height = len(lines) * line_height
+        start_y = (height - total_text_height) // 2
+
+        for i, line in enumerate(rendered_lines):
+            if not line:
+                continue
+            surface = font.render(line, True, INTRO_TEXT)
+            rect = surface.get_rect(center=(width // 2, start_y + i * line_height))
+            screen.blit(surface, rect)
+
+        pygame.display.flip()
+
+
 def run_menu(screen, clock, initial_level, unlocked_level):
     title_font = pygame.font.SysFont(None, 72)
     label_font = pygame.font.SysFont(None, 36)

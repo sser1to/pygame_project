@@ -46,7 +46,7 @@ class Player:
         self.last_dir = pygame.Vector2(0, -1)
         self.carrying = None
 
-    def update(self, dt, grid, map_size_px):
+    def update(self, dt, grid, map_size_px, skip_solid_tiles=None):
         keys = pygame.key.get_pressed()
         move = pygame.Vector2(0, 0)
         if keys[pygame.K_w]:
@@ -65,24 +65,24 @@ class Player:
         else:
             self.moving = False
 
-        self.move_and_collide(move.x * PLAYER_SPEED * dt, move.y * PLAYER_SPEED * dt, grid)
+        self.move_and_collide(move.x * PLAYER_SPEED * dt, move.y * PLAYER_SPEED * dt, grid, skip_solid_tiles)
         self.clamp_to_map(map_size_px)
         self.update_animation(dt)
 
-    def move_and_collide(self, dx, dy, grid):
+    def move_and_collide(self, dx, dy, grid, skip_solid_tiles=None):
         if dx != 0:
             self.pos.x += dx
             self.rect.x = round(self.pos.x)
-            self.resolve_collisions(grid, axis="x")
+            self.resolve_collisions(grid, axis="x", skip_solid_tiles=skip_solid_tiles)
         if dy != 0:
             self.pos.y += dy
             self.rect.y = round(self.pos.y)
-            self.resolve_collisions(grid, axis="y")
+            self.resolve_collisions(grid, axis="y", skip_solid_tiles=skip_solid_tiles)
 
-    def resolve_collisions(self, grid, axis):
+    def resolve_collisions(self, grid, axis, skip_solid_tiles=None):
         from world import iter_solid_tiles
 
-        for tile_rect in iter_solid_tiles(grid, self.rect):
+        for tile_rect in iter_solid_tiles(grid, self.rect, skip_solid_tiles):
             if not self.rect.colliderect(tile_rect):
                 continue
             if axis == "x":
