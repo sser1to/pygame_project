@@ -384,16 +384,18 @@ def draw_dust(screen, camera, dt):
     global _dust_particles, _dust_overlay
     width, height = SCREEN_WIDTH, SCREEN_HEIGHT
 
+    cam_x, cam_y = camera.x, camera.y
+
     if _dust_particles is None or len(_dust_particles) != DUST_COUNT:
         _dust_particles = []
         for _ in range(DUST_COUNT):
             _dust_particles.append([
-                random.randint(0, width),
-                random.randint(0, height),
-                random.uniform(-DUST_SPEED, DUST_SPEED),
-                random.uniform(-DUST_SPEED, DUST_SPEED),
-                random.randint(DUST_MIN_SIZE, DUST_MAX_SIZE),
-                random.randint(10, DUST_MAX_ALPHA),
+                random.uniform(cam_x, cam_x + width),        # [0] world x
+                random.uniform(cam_y, cam_y + height),       # [1] world y
+                random.uniform(-DUST_SPEED, DUST_SPEED),     # [2] vx
+                random.uniform(-DUST_SPEED, DUST_SPEED),     # [3] vy
+                random.randint(DUST_MIN_SIZE, DUST_MAX_SIZE),# [4] radius
+                random.randint(10, DUST_MAX_ALPHA),          # [5] alpha
             ])
 
     if _dust_overlay is None or _dust_overlay.get_size() != (width, height):
@@ -401,20 +403,21 @@ def draw_dust(screen, camera, dt):
 
     _dust_overlay.fill((0, 0, 0, 0))
 
+    margin = 200
+
     for p in _dust_particles:
         p[0] += p[2] * dt
         p[1] += p[3] * dt
 
-        if p[0] < -10:
-            p[0] = width + 10
-        elif p[0] > width + 10:
-            p[0] = -10
-        if p[1] < -10:
-            p[1] = height + 10
-        elif p[1] > height + 10:
-            p[1] = -10
+        if (p[0] < cam_x - margin or p[0] > cam_x + width + margin or
+            p[1] < cam_y - margin or p[1] > cam_y + height + margin):
+            p[0] = random.uniform(cam_x, cam_x + width)
+            p[1] = random.uniform(cam_y, cam_y + height)
 
-        pygame.draw.circle(_dust_overlay, (255, 255, 255, p[5]), (int(p[0]), int(p[1])), p[4])
+        pygame.draw.circle(
+            _dust_overlay, (255, 255, 255, p[5]),
+            (int(p[0] - cam_x), int(p[1] - cam_y)), p[4]
+        )
 
     screen.blit(_dust_overlay, (0, 0))
 

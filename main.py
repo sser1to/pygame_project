@@ -346,13 +346,13 @@ def run_game(screen, clock, level_number):
         draw_projectiles(world_surface, stone_projectiles, camera)
         player.draw(world_surface, camera)
         draw_carried_item(world_surface, player, item_assets, camera)
-        draw_dust(world_surface, camera, dt)
         draw_spotlight(world_surface, player, candle_centers, camera, dt)
         draw_darkness(world_surface, dark_tiles, dark_overlay, candle_centers, camera)
         for monster in monsters:
             monster.draw(world_surface, camera)
         draw_item_outlines(world_surface, items, item_assets, item_outlines, camera, player, dark_tiles, visibility_tiles)
         draw_furnace_outline(world_surface, grid, player, camera)
+        draw_dust(world_surface, camera, dt)
         blit_zoomed_world(screen, world_surface, CAMERA_ZOOM)
 
         # Atmosphere effects
