@@ -665,6 +665,34 @@ def draw_objectives(screen, font, coal_loaded, coal_required, levers_active, lev
         y += line_height
 
 
+_hunger_distortion_time = 0.0
+
+
+def draw_hunger_distortion(screen, hunger_value, dt):
+    global _hunger_distortion_time
+
+    if hunger_value <= 50.0:
+        _hunger_distortion_time = 0.0
+        return
+
+    _hunger_distortion_time += dt
+    intensity = (hunger_value - 50.0) / 50.0
+    width, height = screen.get_size()
+    snapshot = screen.copy()
+
+    amplitude = 6.0 * intensity
+    freq = 0.04
+    speed = 2.5
+    step = 3
+
+    for y in range(0, height, step):
+        offset = int(math.sin(y * freq + _hunger_distortion_time * speed) * amplitude)
+        if offset > 0:
+            screen.blit(snapshot, (offset, y), (0, y, width - offset, step))
+        elif offset < 0:
+            screen.blit(snapshot, (0, y), (-offset, y, width + offset, step))
+
+
 def draw_spotlight(screen, player, candle_centers, camera, dt):
     t = pygame.time.get_ticks() / 1000.0
 

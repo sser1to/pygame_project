@@ -57,6 +57,7 @@ from ui import (
     draw_film_grain,
     draw_frost_overlay,
     draw_hunger_bar,
+    draw_hunger_distortion,
     draw_objectives,
     draw_spotlight,
     draw_vignette,
@@ -365,6 +366,7 @@ def run_game(screen, clock, level_number):
         if hunger_enabled:
             draw_hunger_bar(screen, hunger_value)
         draw_objectives(screen, hud_font, coal_loaded, coal_required, levers_active, levers_required)
+        draw_hunger_distortion(screen, hunger_value, dt)
         pygame.display.flip()
 
         if dead:
