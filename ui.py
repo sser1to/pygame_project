@@ -1,3 +1,6 @@
+import math
+import random
+
 import pygame
 
 from settings import (
@@ -181,17 +184,24 @@ def run_message_screen(screen, clock, message, background=None):
     hold_timer = 0.0
     fade_alpha = 0.0
     fade_duration = 0.5
-    hold_duration = 1.1
+    hold_duration = 3
 
     while True:
         dt = clock.tick(60) / 1000.0
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return "quit"
-            if event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
-                    screen = toggle_fullscreen()
-                    continue
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
+                screen = toggle_fullscreen()
+                continue
+            if event.type == pygame.KEYDOWN and event.key in (
+                pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_ESCAPE,
+            ):
+                if typing_done:
+                    return "done"
+                visible_chars = float(total_chars)
+                typing_done = True
+            if event.type == pygame.MOUSEBUTTONDOWN:
                 if typing_done:
                     return "done"
                 visible_chars = float(total_chars)
@@ -224,6 +234,162 @@ def run_message_screen(screen, clock, message, background=None):
         screen.blit(surface, rect)
 
         pygame.display.flip()
+
+
+# ─── VIGNETTE ────────────────────────────────────────────────────────────────
+
+_vignette_cache = {}
+_vignette_overlay = None
+
+
+def _get_vignette(width, height):
+    key = (width, height)
+    if key not in _vignette_cache:
+        surf = pygame.Surface((width, height), pygame.SRCALPHA)
+        try:
+            import numpy as np
+
+            arr = pygame.surfarray.pixels_alpha(surf)
+            cx, cy = width // 2, height // 2
+            max_dist = math.sqrt(cx**2 + cy**2)
+            y_grid, x_grid = np.ogrid[:height, :width]
+            dist = np.sqrt((x_grid - cx) ** 2 + (y_grid - cy) ** 2)
+            arr[:] = np.clip(255 * (dist / max_dist) ** 1.8, 0, 255).astype(np.uint8).T
+            del arr
+        except Exception:
+            surf.fill((0, 0, 0, 180))
+        _vignette_cache[key] = surf
+    return _vignette_cache[key]
+
+
+def draw_vignette(screen, intensity=1.0):
+    global _vignette_overlay
+    if intensity <= 0.01:
+        return
+    vignette = _get_vignette(*screen.get_size())
+    if _vignette_overlay is None or _vignette_overlay.get_size() != screen.get_size():
+        _vignette_overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+    _vignette_overlay.fill((0, 0, 0))
+    _vignette_overlay.blit(vignette, (0, 0))
+    _vignette_overlay.set_alpha(min(255, int(130 * intensity)))
+    screen.blit(_vignette_overlay, (0, 0))
+
+
+# ─── CHASE PULSE ─────────────────────────────────────────────────────────────
+
+_chase_pulse_alpha = 0.0
+_chase_pulse_timer = 0.0
+_chase_glow_cache = {}
+_chase_glow_overlay = None
+
+
+def _get_chase_glow(width, height):
+    key = (width, height)
+    if key not in _chase_glow_cache:
+        surf = pygame.Surface((width, height), pygame.SRCALPHA)
+        surf.fill((160, 0, 0, 255))
+        try:
+            import numpy as np
+
+            arr = pygame.surfarray.pixels_alpha(surf)
+            cx, cy = width // 2, height // 2
+            max_dist = math.sqrt(cx**2 + cy**2)
+            y_grid, x_grid = np.ogrid[:height, :width]
+            dist = np.sqrt((x_grid - cx) ** 2 + (y_grid - cy) ** 2)
+            t = np.clip(dist / max_dist, 0, 1)
+            arr[:] = np.clip(255 * t**3, 0, 255).astype(np.uint8).T
+            del arr
+        except Exception:
+            pass
+        _chase_glow_cache[key] = surf
+    return _chase_glow_cache[key]
+
+
+def draw_chase_pulse(screen, chase_timer, chase_active, dt):
+    global _chase_pulse_alpha, _chase_pulse_timer, _chase_glow_overlay
+
+    target = 1.0 if chase_active else 0.0
+    rate = 4.0 if chase_active else 1.2
+    _chase_pulse_alpha += (target - _chase_pulse_alpha) * min(1.0, rate * dt)
+
+    if _chase_pulse_alpha < 0.001:
+        _chase_pulse_alpha = 0.0
+        _chase_pulse_timer = 0.0
+        return
+
+    _chase_pulse_timer += dt
+
+    glow = _get_chase_glow(*screen.get_size())
+    if _chase_glow_overlay is None or _chase_glow_overlay.get_size() != screen.get_size():
+        _chase_glow_overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+    _chase_glow_overlay.fill((0, 0, 0, 0))
+    _chase_glow_overlay.blit(glow, (0, 0))
+
+    pulse = max(0.3, abs(math.sin(_chase_pulse_timer * 3.0)))
+    _chase_glow_overlay.set_alpha(int(pulse * 80 * _chase_pulse_alpha))
+    screen.blit(_chase_glow_overlay, (0, 0))
+
+
+# ─── FROST ───────────────────────────────────────────────────────────────────
+
+_frost_cache = {}
+
+
+def _get_frost_surface(width, height):
+    key = (width, height)
+    if key not in _frost_cache:
+        surf = pygame.Surface((width, height), pygame.SRCALPHA)
+        surf.fill((160, 200, 255, 255))
+        try:
+            import numpy as np
+
+            arr = pygame.surfarray.pixels_alpha(surf)
+            cx, cy = width // 2, height // 2
+            max_dist = math.sqrt(cx**2 + cy**2)
+            y_grid, x_grid = np.ogrid[:height, :width]
+            dist = np.sqrt((x_grid - cx) ** 2 + (y_grid - cy) ** 2)
+            arr[:] = np.clip(255 * (dist / max_dist) ** 3, 0, 255).astype(np.uint8).T
+            del arr
+        except Exception:
+            pass
+        _frost_cache[key] = surf
+    return _frost_cache[key]
+
+
+def draw_frost_overlay(screen, cold_value, freeze_enabled):
+    if not freeze_enabled or cold_value <= 20:
+        return
+    intensity = min(1.0, (cold_value - 20) / 60.0)
+    surf = _get_frost_surface(*screen.get_size())
+    surf.set_alpha(int(120 * intensity))
+    screen.blit(surf, (0, 0))
+
+
+# ─── FILM GRAIN ──────────────────────────────────────────────────────────────
+
+_grain_cache = {}
+
+
+def _get_grain(width, height):
+    key = (width, height)
+    if key not in _grain_cache:
+        surf = pygame.Surface((width, height), pygame.SRCALPHA)
+        count = max(800, (width * height) // 250)
+        for _ in range(count):
+            x = random.randint(0, width - 1)
+            y = random.randint(0, height - 1)
+            a = random.randint(0, 25)
+            surf.set_at((x, y), (255, 255, 255, a))
+        _grain_cache[key] = surf
+    return _grain_cache[key]
+
+
+def draw_film_grain(screen, intensity=0.15):
+    if intensity <= 0:
+        return
+    grain = _get_grain(*screen.get_size())
+    grain.set_alpha(int(intensity * 255))
+    screen.blit(grain, (0, 0))
 
 
 def run_guide_screen(screen, clock):

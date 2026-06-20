@@ -52,10 +52,14 @@ from settings import (
     TILE_SIZE,
 )
 from ui import (
+    draw_chase_pulse,
     draw_cold_bar,
+    draw_film_grain,
+    draw_frost_overlay,
     draw_hunger_bar,
     draw_objectives,
     draw_spotlight,
+    draw_vignette,
     run_level_intro,
     run_message_screen,
     run_menu,
@@ -168,6 +172,7 @@ def run_game(screen, clock, level_number):
     footstep_channel = pygame.mixer.Channel(2)
     ambient_channel.play(ambient_sound, loops=-1, fade_ms=MUSIC_FADE_MS)
     chase_active = False
+    chase_timer = 0.0
     footstep_active = False
 
     def stop_level_audio():
@@ -296,6 +301,7 @@ def run_game(screen, clock, level_number):
                 chase_channel.fadeout(MUSIC_FADE_MS)
                 ambient_channel.play(ambient_sound, loops=-1, fade_ms=MUSIC_FADE_MS)
                 chase_active = False
+            chase_timer = chase_timer + dt if chase_active else 0.0
             player_center = pygame.Vector2(player.rect.center)
             for monster in monsters:
                 if (monster.pos - player_center).length_squared() <= monster_kill_radius_sq:
@@ -346,6 +352,14 @@ def run_game(screen, clock, level_number):
         draw_item_outlines(world_surface, items, item_assets, item_outlines, camera, player, dark_tiles, visibility_tiles)
         draw_furnace_outline(world_surface, grid, player, camera)
         blit_zoomed_world(screen, world_surface, CAMERA_ZOOM)
+
+        # Atmosphere effects
+        draw_frost_overlay(screen, cold_value, freeze_enabled)
+        draw_film_grain(screen, 0.12)
+        vignette_intensity = 0.65 if not chase_active else 0.75
+        draw_vignette(screen, vignette_intensity)
+        draw_chase_pulse(screen, chase_timer, chase_active, dt)
+
         if freeze_enabled:
             draw_cold_bar(screen, cold_value)
         if hunger_enabled:
@@ -355,11 +369,13 @@ def run_game(screen, clock, level_number):
 
         if dead:
             stop_level_audio()
+            pygame.event.clear()
             snapshot = screen.copy()
             result = run_message_screen(screen, clock, "Вы умерли", snapshot)
             return "quit" if result == "quit" else "restart"
         if level_complete:
             stop_level_audio()
+            pygame.event.clear()
             snapshot = screen.copy()
             result = run_message_screen(screen, clock, "Вы прошли уровень!", snapshot)
             return "quit" if result == "quit" else "menu"
