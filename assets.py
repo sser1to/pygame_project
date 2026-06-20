@@ -75,5 +75,5 @@ def soften_alpha_mask(surface, passes):
                 max(1, surface.get_height() // 2),
             ),
         )
-        surface = pygame.transform.smoothscale(surface, (SCREEN_WIDTH, SCREEN_HEIGHT))
+    surface = pygame.transform.smoothscale(surface, (SCREEN_WIDTH, SCREEN_HEIGHT))
     return surface
