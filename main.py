@@ -106,7 +106,7 @@ from world import (
 
 
 def run_game(screen, clock, level_number):
-    pygame.display.set_caption("Abyss Walker - prototype")
+    pygame.display.set_caption("Project Abyss")
     grid = load_map(MAP_PATH)
     rows = len(grid)
     cols = len(grid[0])

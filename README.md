@@ -1,4 +1,4 @@
-# Abyss Walker
+# Project Abyss
 
 **Жанр:** Horror
 

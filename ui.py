@@ -752,7 +752,7 @@ def run_menu(screen, clock, initial_level, unlocked_level):
         screen.fill(MENU_BG)
         width, height = screen.get_size()
 
-        title = title_font.render("Abyss Walker", True, MENU_TEXT)
+        title = title_font.render("Project Abyss", True, MENU_TEXT)
         title_rect = title.get_rect(center=(width // 2, height // 4))
         screen.blit(title, title_rect)
 
