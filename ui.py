@@ -484,6 +484,7 @@ def run_guide_screen(screen, clock):
                 "- Свеча - помогает видеть в темных участках карты, можно перетаскивать",
                 "- Камень - помогает отвлекать монстров звуком броска, можно перетаскивать",
                 "- Яблоко - восстанавливает половину голода",
+                "- Записка - раскрывает историю",
             ],
         ),
         (
@@ -545,6 +546,96 @@ def run_guide_screen(screen, clock):
             y += section_gap
 
         screen.blit(prompt_surface, prompt_surface.get_rect(midbottom=(width // 2, height - 20)))
+        pygame.display.flip()
+
+
+def run_note_screen(screen, clock, title, text, background=None):
+    title_font = pygame.font.SysFont(None, 38)
+    text_font = pygame.font.SysFont(None, 26)
+    prompt_font = pygame.font.SysFont(None, 24)
+
+    paper_color = (215, 210, 205)
+    paper_border = (150, 145, 140)
+    title_color = (40, 40, 40)
+    text_color = (55, 55, 55)
+    prompt_color = (130, 125, 120)
+
+    while True:
+        dt = clock.tick(60) / 1000.0
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_F11:
+                    screen = toggle_fullscreen()
+                    continue
+                if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_ESCAPE, pygame.K_SPACE):
+                    return "done"
+
+        screen = pygame.display.get_surface() or screen
+        width, height = screen.get_size()
+
+        if background is not None:
+            screen.blit(background, (0, 0))
+            overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 130))
+            screen.blit(overlay, (0, 0))
+        else:
+            screen.fill((12, 12, 16))
+
+        paper_w = min(640, width - 80)
+        paper_h = min(500, height - 80)
+        paper_x = (width - paper_w) // 2
+        paper_y = (height - paper_h) // 2
+
+        pygame.draw.rect(screen, paper_color, (paper_x, paper_y, paper_w, paper_h), border_radius=6)
+        pygame.draw.rect(screen, paper_border, (paper_x, paper_y, paper_w, paper_h), 2, border_radius=6)
+
+        inner_x = paper_x + 30
+        inner_w = paper_w - 60
+
+        title_surf = title_font.render(title, True, title_color)
+        title_rect = title_surf.get_rect(midtop=(paper_x + paper_w // 2, paper_y + 24))
+        screen.blit(title_surf, title_rect)
+
+        line_y = title_rect.bottom + 18
+        line_rect = pygame.Rect(inner_x, line_y, inner_w, 1)
+        pygame.draw.rect(screen, paper_border, line_rect)
+
+        text_y = line_y + 14
+        max_text_height = paper_y + paper_h - 60 - text_y
+        available_width = inner_w
+
+        paragraphs = text.split("\n")
+        lines = []
+        for para in paragraphs:
+            if not para.strip():
+                lines.append("")
+                continue
+            words = para.split()
+            current_line = ""
+            for word in words:
+                test_line = (current_line + " " + word).strip()
+                if text_font.size(test_line)[0] <= available_width:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = word
+            if current_line:
+                lines.append(current_line)
+
+        for line in lines:
+            if text_y + text_font.get_linesize() > paper_y + paper_h - 30:
+                break
+            line_surf = text_font.render(line, True, text_color)
+            screen.blit(line_surf, (inner_x, text_y))
+            text_y += text_font.get_linesize() + 4
+
+        prompt_surf = prompt_font.render("Нажмите Enter, чтобы закрыть", True, prompt_color)
+        prompt_rect = prompt_surf.get_rect(midbottom=(paper_x + paper_w // 2, paper_y + paper_h - 16))
+        screen.blit(prompt_surf, prompt_rect)
+
         pygame.display.flip()
 
 

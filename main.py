@@ -23,9 +23,11 @@ from settings import (
     ITEM_COAL,
     ITEM_DRAW_SCALE,
     ITEM_LEVER,
+    ITEM_NOTE,
     ITEM_OUTLINE_COLOR,
     ITEM_STONE,
     LEVELS_PATH,
+    NOTES_PATH,
     MAP_PATH,
     MONSTER_ARM_LOWER_SCALE_X,
     MONSTER_ARM_LOWER_SCALE_Y,
@@ -65,6 +67,7 @@ from ui import (
     run_level_intro,
     run_message_screen,
     run_menu,
+    run_note_screen,
     toggle_fullscreen,
 )
 from world import (
@@ -84,9 +87,11 @@ from world import (
     get_candle_light_tiles,
     get_candle_visibility_tiles,
     get_level_config,
+    get_note,
     get_player_tile,
     handle_interaction,
     load_levels,
+    load_notes,
     load_map,
     load_progress,
     pick_monster_spawns,
@@ -116,6 +121,7 @@ def run_game(screen, clock, level_number):
         ITEM_CANDLE: load_svg_surface(TEXTURES_DIR / "candle.svg", (item_size, item_size)),
         ITEM_APPLE: load_svg_surface(TEXTURES_DIR / "apple.svg", (item_size, item_size)),
         ITEM_STONE: load_svg_surface(TEXTURES_DIR / "stone.svg", (item_size, item_size)),
+        ITEM_NOTE: load_svg_surface(TEXTURES_DIR / "note.svg", (item_size, item_size)),
         "lever_off": load_svg_surface(TEXTURES_DIR / "lever_off.svg", (item_size, item_size)),
         "lever_on": load_svg_surface(TEXTURES_DIR / "lever_on.svg", (item_size, item_size)),
     }
@@ -184,6 +190,7 @@ def run_game(screen, clock, level_number):
         footstep_channel.fadeout(FOOTSTEP_FADE_MS)
 
     levels = load_levels(LEVELS_PATH)
+    notes = load_notes(NOTES_PATH)
     level_config = get_level_config(levels, level_number)
     items_config = level_config.get("items", {})
     objectives_config = level_config.get("objectives", {})
@@ -212,7 +219,7 @@ def run_game(screen, clock, level_number):
 
     spawn_tile = find_spawn_tile(grid)
     dark_tiles = build_dark_tiles(grid, spawn_tile, darkness_amount)
-    items = spawn_items(grid, spawn_tile, items_config, objectives_config)
+    items = spawn_items(grid, spawn_tile, items_config, objectives_config, level_number)
     dark_overlay = pygame.Surface((TILE_SIZE, TILE_SIZE), pygame.SRCALPHA)
     dark_overlay.fill((0, 0, 0, DARK_OVERLAY_ALPHA))
     cold_value = 0.0
@@ -255,7 +262,7 @@ def run_game(screen, clock, level_number):
                 elif event.key == pygame.K_d:
                     player.last_dir = pygame.Vector2(1, 0)
                 elif event.key == pygame.K_RETURN and not dead:
-                    ate_apple, loaded_coal = handle_interaction(
+                    ate_apple, loaded_coal, note_level = handle_interaction(
                         player,
                         items,
                         grid,
@@ -264,11 +271,19 @@ def run_game(screen, clock, level_number):
                         item_assets[ITEM_STONE],
                         dark_tiles,
                         sfx,
+                        level_number,
                     )
                     if ate_apple and HUNGER_ENABLED:
                         hunger_value = max(0.0, hunger_value - HUNGER_RESTORE)
                     if loaded_coal and coal_loaded < coal_required:
                         coal_loaded += 1
+                    if note_level is not None:
+                        note_data = get_note(notes, note_level)
+                        if note_data is not None:
+                            result = run_note_screen(screen, clock, note_data["title"], note_data["text"], background=screen.copy())
+                            if result == "quit":
+                                stop_level_audio()
+                                return "quit"
 
         if not dead:
             player.update(dt, grid, map_size_px)

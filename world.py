@@ -23,6 +23,7 @@ from settings import (
     ITEM_SPAWN_ATTEMPTS,
     ITEM_SPAWN_SAMPLES,
     ITEM_STONE,
+    ITEM_NOTE,
     LEVEL_COUNT,
     MONSTER_PATROL_COUNT,
     MONSTER_PATROL_SAMPLE_SIZE,
@@ -74,6 +75,20 @@ def get_level_config(levels, level_number):
         if level.get("level") == level_number:
             return level
     return {}
+
+
+def load_notes(path):
+    if not path.exists():
+        return []
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def get_note(notes, level_number):
+    for note in notes:
+        if note.get("level") == level_number:
+            return note
+    return None
 
 
 SAVE_PATH = Path(__file__).with_name("save.json")
@@ -465,7 +480,7 @@ def _best_candidate(available, existing, spawn_tile, min_same_sq, min_spawn_sq, 
     return best
 
 
-def spawn_items(grid, spawn_tile, items_counts, objectives):
+def spawn_items(grid, spawn_tile, items_counts, objectives, level_number=1):
     from entities import Item
 
     floor_tiles = collect_floor_tiles(grid)
@@ -481,6 +496,7 @@ def spawn_items(grid, spawn_tile, items_counts, objectives):
         ITEM_APPLE: [],
         ITEM_LEVER: [],
         ITEM_STONE: [],
+        ITEM_NOTE: [],
     }
 
     candle_count = items_counts.get("candles", 1)
@@ -494,6 +510,7 @@ def spawn_items(grid, spawn_tile, items_counts, objectives):
         (ITEM_APPLE, food_count),
         (ITEM_LEVER, lever_count),
         (ITEM_STONE, stone_count),
+        (ITEM_NOTE, 1),
     ]
 
     for kind, count in spawn_plan:
@@ -753,6 +770,7 @@ def handle_interaction(
     stone_sprite,
     dark_tiles=None,
     sfx=None,
+    level_number=1,
 ):
     from entities import Item, StoneProjectile
 
@@ -761,13 +779,13 @@ def handle_interaction(
     target_tile = (player_tile[0] + offset[0], player_tile[1] + offset[1]) if offset != (0, 0) else None
     if player.carrying:
         if offset == (0, 0):
-            return False, False
+            return False, False, None
         if player.carrying == ITEM_COAL and target_tile and tile_is_furnace(grid, target_tile):
             player.carrying = None
             emit_sound(sound_events, target_tile)
             if sfx is not None:
                 sfx["furnace"].play()
-            return False, True
+            return False, True, None
         if player.carrying == ITEM_STONE:
             landing_tile = throw_stone(grid, items, player_tile, offset)
             if landing_tile is not None:
@@ -784,11 +802,11 @@ def handle_interaction(
                         )
                     )
             player.carrying = None
-            return False, False
+            return False, False, None
         if target_tile and tile_is_placeable(grid, target_tile) and get_item_at(items, target_tile) is None:
             items.append(Item(player.carrying, target_tile))
             player.carrying = None
-        return False, False
+        return False, False, None
 
     candidate_tiles = [player_tile] + adjacent_tiles(player_tile)
     for tile in candidate_tiles:
@@ -806,14 +824,19 @@ def handle_interaction(
             items.remove(item)
             if sfx is not None:
                 sfx["pickup"].play()
-            return True, False
+            return True, False, None
+        elif item.kind == ITEM_NOTE:
+            items.remove(item)
+            if sfx is not None:
+                sfx["pickup"].play()
+            return False, False, level_number
         else:
             player.carrying = item.kind
             items.remove(item)
             if sfx is not None:
                 sfx["pickup"].play()
-        return False, False
-    return False, False
+        return False, False, None
+    return False, False, None
 
 
 def compute_camera(player_rect, map_size_px):

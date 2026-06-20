@@ -8,6 +8,7 @@ MAP_PATH = Path(__file__).with_name("map.txt")
 TEXTURES_DIR = Path(__file__).with_name("textures")
 SOUNDS_DIR = Path(__file__).with_name("sounds")
 LEVELS_PATH = Path(__file__).with_name("levels.json")
+NOTES_PATH = Path(__file__).with_name("notes.json")
 CURRENT_LEVEL = 1
 LEVEL_COUNT = 7
 TILE_FLOOR = 1
@@ -21,6 +22,7 @@ ITEM_CANDLE = "candle"
 ITEM_APPLE = "apple"
 ITEM_LEVER = "lever"
 ITEM_STONE = "stone"
+ITEM_NOTE = "note"
 
 ITEM_DRAW_SCALE = 0.6
 ITEM_OUTLINE_COLOR = (80, 140, 200)
