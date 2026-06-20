@@ -54,6 +54,7 @@ from settings import (
 from ui import (
     draw_chase_pulse,
     draw_cold_bar,
+    draw_dust,
     draw_film_grain,
     draw_frost_overlay,
     draw_hunger_bar,
@@ -345,7 +346,8 @@ def run_game(screen, clock, level_number):
         draw_projectiles(world_surface, stone_projectiles, camera)
         player.draw(world_surface, camera)
         draw_carried_item(world_surface, player, item_assets, camera)
-        draw_spotlight(world_surface, player, candle_centers, camera)
+        draw_dust(world_surface, camera, dt)
+        draw_spotlight(world_surface, player, candle_centers, camera, dt)
         draw_darkness(world_surface, dark_tiles, dark_overlay, candle_centers, camera)
         for monster in monsters:
             monster.draw(world_surface, camera)

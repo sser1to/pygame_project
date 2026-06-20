@@ -6,6 +6,13 @@ import pygame
 from settings import (
     CANDLE_LIGHT_RADIUS,
     CANDLE_LIGHT_ALPHA,
+    CANDLE_PULSE_SPEED,
+    CANDLE_PULSE_AMOUNT,
+    DUST_COUNT,
+    DUST_SPEED,
+    DUST_MAX_ALPHA,
+    DUST_MIN_SIZE,
+    DUST_MAX_SIZE,
     HUD_SHADOW,
     HUD_TEXT,
     INTRO_BG,
@@ -21,6 +28,8 @@ from settings import (
     SPOTLIGHT_ALPHA,
     SPOTLIGHT_FEATHER,
     SPOTLIGHT_RADIUS,
+    SPOTLIGHT_PULSE_SPEED,
+    SPOTLIGHT_PULSE_AMOUNT,
     TILE_SIZE,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
@@ -365,6 +374,51 @@ def draw_frost_overlay(screen, cold_value, freeze_enabled):
     screen.blit(surf, (0, 0))
 
 
+# ─── DUST PARTICLES ──────────────────────────────────────────────────────────
+
+_dust_particles = None
+_dust_overlay = None
+
+
+def draw_dust(screen, camera, dt):
+    global _dust_particles, _dust_overlay
+    width, height = SCREEN_WIDTH, SCREEN_HEIGHT
+
+    if _dust_particles is None or len(_dust_particles) != DUST_COUNT:
+        _dust_particles = []
+        for _ in range(DUST_COUNT):
+            _dust_particles.append([
+                random.randint(0, width),
+                random.randint(0, height),
+                random.uniform(-DUST_SPEED, DUST_SPEED),
+                random.uniform(-DUST_SPEED, DUST_SPEED),
+                random.randint(DUST_MIN_SIZE, DUST_MAX_SIZE),
+                random.randint(10, DUST_MAX_ALPHA),
+            ])
+
+    if _dust_overlay is None or _dust_overlay.get_size() != (width, height):
+        _dust_overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+
+    _dust_overlay.fill((0, 0, 0, 0))
+
+    for p in _dust_particles:
+        p[0] += p[2] * dt
+        p[1] += p[3] * dt
+
+        if p[0] < -10:
+            p[0] = width + 10
+        elif p[0] > width + 10:
+            p[0] = -10
+        if p[1] < -10:
+            p[1] = height + 10
+        elif p[1] > height + 10:
+            p[1] = -10
+
+        pygame.draw.circle(_dust_overlay, (255, 255, 255, p[5]), (int(p[0]), int(p[1])), p[4])
+
+    screen.blit(_dust_overlay, (0, 0))
+
+
 # ─── FILM GRAIN ──────────────────────────────────────────────────────────────
 
 _grain_cache = {}
@@ -608,23 +662,28 @@ def draw_objectives(screen, font, coal_loaded, coal_required, levers_active, lev
         y += line_height
 
 
-def draw_spotlight(screen, player, candle_centers, camera):
+def draw_spotlight(screen, player, candle_centers, camera, dt):
+    t = pygame.time.get_ticks() / 1000.0
+
+    sp = 1.0 - abs(math.sin(t * SPOTLIGHT_PULSE_SPEED)) * SPOTLIGHT_PULSE_AMOUNT
+
     overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-    overlay.fill((0, 0, 0, SPOTLIGHT_ALPHA))
+    overlay.fill((0, 0, 0, int(SPOTLIGHT_ALPHA * sp)))
 
     center = (
         int(player.rect.centerx - camera.x),
         int(player.rect.centery - camera.y),
     )
+    base_r = int(SPOTLIGHT_RADIUS * sp)
     for step in range(4):
-        radius = SPOTLIGHT_RADIUS + step * (SPOTLIGHT_FEATHER // 3)
-        alpha = max(0, SPOTLIGHT_ALPHA - (step + 1) * (SPOTLIGHT_ALPHA // 5))
+        radius = base_r + step * (SPOTLIGHT_FEATHER // 3)
+        alpha = max(0, int(SPOTLIGHT_ALPHA * sp - (step + 1) * (SPOTLIGHT_ALPHA // 5)))
         pygame.draw.circle(overlay, (0, 0, 0, alpha), center, radius)
-    pygame.draw.circle(overlay, (0, 0, 0, PLAYER_LIGHT_ALPHA), center, SPOTLIGHT_RADIUS)
+    pygame.draw.circle(overlay, (0, 0, 0, int(PLAYER_LIGHT_ALPHA * sp)), center, base_r)
 
-    candle_radius = int((CANDLE_LIGHT_RADIUS + 0.5) * TILE_SIZE)
+    candle_r = int((CANDLE_LIGHT_RADIUS + 0.5) * TILE_SIZE)
     for candle_center in candle_centers:
         screen_pos = (int(candle_center[0] - camera.x), int(candle_center[1] - camera.y))
-        pygame.draw.circle(overlay, (0, 0, 0, CANDLE_LIGHT_ALPHA), screen_pos, candle_radius)
+        pygame.draw.circle(overlay, (0, 0, 0, CANDLE_LIGHT_ALPHA), screen_pos, candle_r)
 
     screen.blit(overlay, (0, 0))
