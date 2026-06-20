@@ -54,15 +54,17 @@
 
 ## Скриншоты из игры
 
-<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/b4d80a94-e330-4e5f-95ea-abbb4dcdc787" />
+<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/36a00b00-6ec9-4426-8e0a-121feb9402a7" />
 
-<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/8f6b7866-4121-4b53-b779-f95891fd2bf8" />
+<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/287c5979-effe-44c2-98c8-630fa813e9b8" />
 
-<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/470eebc4-61e2-411c-8a9f-7cf7593adaf7" />
+<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/e898370a-2f82-4b76-88bf-de2091fdeea7" />
 
-<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/d62945d2-206c-4652-93c8-1e6931a1cfa0" />
+<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/5799ae33-dbcd-421b-bfdd-b25e242648b7" />
 
-<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/58a26922-80b2-41b8-b94a-3216cab8668e" />
+<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/a2bbcd02-9d7b-4890-a466-33e94604c0b9" />
+
+<img width="1280" height="720" alt="изображение" src="https://github.com/user-attachments/assets/cef8cd10-3596-49af-8eb6-1e0db5c97a6b" />
 
 ## Сложные алгоритмы
 
