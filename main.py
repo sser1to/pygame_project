@@ -4,7 +4,6 @@ from assets import load_sound, load_svg_surface, tint_surface
 from entities import Item, Monster, Player, build_item_outlines
 from settings import (
     AMBIENT_VOLUME,
-    CAMERA_ZOOM,
     CHASE_VOLUME,
     COLD_MAX,
     COLD_RATE,
@@ -67,7 +66,6 @@ from ui import (
     toggle_fullscreen,
 )
 from world import (
-    blit_zoomed_world,
     build_dark_tiles,
     build_patrol_points,
     compute_camera,
@@ -353,7 +351,7 @@ def run_game(screen, clock, level_number):
         draw_item_outlines(world_surface, items, item_assets, item_outlines, camera, player, dark_tiles, visibility_tiles)
         draw_furnace_outline(world_surface, grid, player, camera)
         draw_dust(world_surface, camera, dt)
-        blit_zoomed_world(screen, world_surface, CAMERA_ZOOM)
+        screen.blit(world_surface, (0, 0))
 
         # Atmosphere effects
         draw_frost_overlay(screen, cold_value, freeze_enabled)
