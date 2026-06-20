@@ -295,6 +295,35 @@ def _neighbors8(tile):
     ]
 
 
+def _filter_small_clusters(tiles, min_size):
+    if min_size <= 1 or not tiles:
+        return tiles
+
+    visited = set()
+    result = set()
+
+    for tile in tiles:
+        if tile in visited:
+            continue
+
+        cluster = set()
+        stack = [tile]
+        while stack:
+            current = stack.pop()
+            if current in visited or current not in tiles:
+                continue
+            visited.add(current)
+            cluster.add(current)
+            for neighbor in _neighbors8(current):
+                if neighbor in tiles and neighbor not in visited:
+                    stack.append(neighbor)
+
+        if len(cluster) >= min_size:
+            result.update(cluster)
+
+    return result
+
+
 def build_dark_tiles(grid, spawn_tile, darkness_amount):
     if darkness_amount <= 0:
         return set()
@@ -354,6 +383,8 @@ def build_dark_tiles(grid, spawn_tile, darkness_amount):
                 if dark_neighbors >= 5:
                     next_dark.add(tile)
         dark_tiles = next_dark
+
+    dark_tiles = _filter_small_clusters(dark_tiles, 3)
 
     return dark_tiles
 
