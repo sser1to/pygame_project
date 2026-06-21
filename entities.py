@@ -19,6 +19,7 @@ from settings import (
     MONSTER_STOP_DISTANCE,
     MONSTER_STEP_SPEED,
     MONSTER_TINT,
+    MONSTER_VISION_MEMORY,
     PLAYER_ANIM_INTERVAL,
     PLAYER_SPEED,
     STONE_THROW_SPEED,
@@ -151,7 +152,7 @@ class Monster:
         self.step_speed = MONSTER_STEP_SPEED * self.rng.uniform(0.9, 1.1)
         self.grab_sway = MONSTER_GRAB_SWAY * self.rng.uniform(0.85, 1.15)
         self.smell_interval = MONSTER_SMELL_INTERVAL * self.rng.uniform(0.85, 1.15)
-        self.vision_memory = 2.0 * self.rng.uniform(0.8, 1.2)
+        self.vision_memory = MONSTER_VISION_MEMORY * self.rng.uniform(0.8, 1.2)
         self.target_offset = pygame.Vector2(self.rng.uniform(-12, 12), self.rng.uniform(-12, 12))
         if self.patrol_points:
             self.patrol_index = self.rng.randrange(len(self.patrol_points))

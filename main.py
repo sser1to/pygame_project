@@ -384,9 +384,9 @@ def run_game(screen, clock, level_number):
         player.draw(world_surface, camera)
         draw_carried_item(world_surface, player, item_assets, camera)
         draw_spotlight(world_surface, player, candle_centers, camera, dt)
-        draw_darkness(world_surface, dark_tiles, dark_overlay, candle_centers, camera)
         for monster in monsters:
             monster.draw(world_surface, camera)
+        draw_darkness(world_surface, dark_tiles, dark_overlay, candle_centers, camera)
         draw_item_outlines(world_surface, items, item_assets, item_outlines, camera, player, dark_tiles, visibility_tiles)
         draw_furnace_outline(world_surface, grid, player, camera)
         if level_number == 7 and exit_was_unlocked:
