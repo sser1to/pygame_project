@@ -453,9 +453,9 @@ def draw_film_grain(screen, intensity=0.15):
 
 
 def run_guide_screen(screen, clock):
-    font = pygame.font.SysFont(None, 30)
-    header_font = pygame.font.SysFont(None, 44)
-    title_font = pygame.font.SysFont(None, 34)
+    font = pygame.font.SysFont(None, 24)
+    header_font = pygame.font.SysFont(None, 36)
+    title_font = pygame.font.SysFont(None, 28)
     prompt_font = pygame.font.SysFont(None, 28)
 
     sections = [
@@ -491,7 +491,8 @@ def run_guide_screen(screen, clock):
             "Прочее",
             [
                 "- Темнота - появляется случайным образом на карте и ограничивает видимость",
-                "- Замерзание - на некоторых уровнях игрок в темноте начинает замерзать, если не выйти из темноты или не воспользоваться свечой, то игрок умрет",
+                "- Замерзание - на некоторых уровнях игрок в темноте начинает замерзать, если не выйти из темноты или",
+                "не воспользоваться свечой, то игрок умрет",
                 "- Голод - на некоторых уровнях игрок испытывает голод, если вовремя не съесть яблоко, то игрок умрет",
             ],
         ),
@@ -705,6 +706,42 @@ def run_credits_screen(screen, clock):
             screen.blit(surface, rect)
 
         pygame.display.flip()
+
+
+def run_splash_screen(screen, clock):
+    big_font = pygame.font.SysFont(None, 120)
+    text_surface = big_font.render("Project Abyss", True, (255, 255, 255))
+    text_rect = text_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+    elapsed = 0.0
+    duration = 5.0
+
+    while elapsed < duration:
+        dt = clock.tick(60) / 1000.0
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_F11:
+                    screen = toggle_fullscreen()
+                    continue
+                if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_ESCAPE, pygame.K_SPACE):
+                    return "ok"
+
+        elapsed += dt
+        alpha = 0
+        if elapsed < 1.5:
+            alpha = int((elapsed / 1.5) * 255)
+        elif elapsed < 3.5:
+            alpha = 255
+        else:
+            t = (elapsed - 3.5) / 1.5
+            alpha = int(max(0, 255 * (1 - t)))
+
+        screen.fill((0, 0, 0))
+        text_surface.set_alpha(alpha)
+        screen.blit(text_surface, text_rect)
+        pygame.display.flip()
+    return "ok"
 
 
 def run_menu(screen, clock, initial_level, unlocked_level):

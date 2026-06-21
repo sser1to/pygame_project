@@ -71,6 +71,7 @@ from ui import (
     run_message_screen,
     run_menu,
     run_note_screen,
+    run_splash_screen,
     toggle_fullscreen,
 )
 from world import (
@@ -440,9 +441,14 @@ def run_game(screen, clock, level_number):
 
 def main():
     pygame.init()
+    pygame.display.set_caption("Project Abyss")
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
     clock = pygame.time.Clock()
     pygame.mouse.set_visible(False)
+
+    if run_splash_screen(screen, clock) == "quit":
+        pygame.quit()
+        return
 
     unlocked_level = load_progress()
     last_selected_level = unlocked_level
