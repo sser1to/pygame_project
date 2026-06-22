@@ -26,14 +26,7 @@ from settings import (
     TILE_SIZE,
     ITEM_LEVER,
 )
-from world import (
-    build_flow_field,
-    get_wall_tiles_near,
-    has_line_of_sight,
-    pick_arm_targets,
-    pick_flow_step,
-    tile_to_world_center,
-)
+from world import FlowField, Grid
 
 
 class Player:
@@ -81,9 +74,7 @@ class Player:
             self.resolve_collisions(grid, axis="y", skip_solid_tiles=skip_solid_tiles)
 
     def resolve_collisions(self, grid, axis, skip_solid_tiles=None):
-        from world import iter_solid_tiles
-
-        for tile_rect in iter_solid_tiles(grid, self.rect, skip_solid_tiles):
+        for tile_rect in grid.iter_solid_tiles(self.rect, skip_solid_tiles):
             if not self.rect.colliderect(tile_rect):
                 continue
             if axis == "x":
@@ -168,7 +159,7 @@ class Monster:
             self.vision_timer = 0.0
             self.last_seen = None
 
-        if vision_enabled and has_line_of_sight(grid, self.pos, player_vec):
+        if vision_enabled and grid.has_line_of_sight(self.pos, player_vec):
             self.last_seen = player_vec + self.target_offset
             self.vision_timer = self.vision_memory
         elif self.vision_timer > 0.0:
@@ -238,16 +229,16 @@ class Monster:
 
         if goals:
             if self.nav_timer <= 0.0 or goals != self.nav_goals:
-                self.nav_field = build_flow_field(grid, goals)
+                self.nav_field = FlowField.build(grid, goals)
                 self.nav_timer = self.nav_interval
                 self.nav_goals = list(goals)
             else:
                 self.nav_timer = max(0.0, self.nav_timer - dt)
 
             current_tile = self._pos_to_tile(self.pos)
-            step_tile = pick_flow_step(self.nav_field, current_tile, self.rng)
+            step_tile = FlowField.pick_step(self.nav_field, current_tile, self.rng)
             if step_tile is not None:
-                desired_pos = pygame.Vector2(tile_to_world_center(step_tile))
+                desired_pos = pygame.Vector2(Grid.tile_to_world_center(step_tile))
                 desired_vec = desired_pos - self.pos
                 if desired_vec.length_squared() > 0:
                     desired_dir = desired_vec.normalize()
@@ -320,7 +311,7 @@ class Monster:
         if grid is None:
             return
         center_tile = (int(self.pos.x // TILE_SIZE), int(self.pos.y // TILE_SIZE))
-        wall_tiles = get_wall_tiles_near(grid, center_tile, 4)
+        wall_tiles = grid.get_wall_tiles_near(center_tile, 4)
         left_shoulder, right_shoulder = self.get_shoulders()
         floor_offset = TILE_SIZE * 0.9
 
@@ -328,7 +319,7 @@ class Monster:
             desired_left = pygame.Vector2(left_shoulder.x, left_shoulder.y + floor_offset)
             desired_right = pygame.Vector2(right_shoulder.x, right_shoulder.y + floor_offset)
         else:
-            left_target, right_target = pick_arm_targets(wall_tiles, self.pos)
+            left_target, right_target = Grid.pick_arm_targets(wall_tiles, self.pos)
             if left_target is None:
                 left_target = (left_shoulder.x, left_shoulder.y + floor_offset)
             if right_target is None:
