@@ -1,3 +1,5 @@
+"""Grid, pathfinding (FlowField), data I/O, save system, and the Level game-state orchestrator."""
+
 import heapq
 import json
 import math
@@ -65,7 +67,15 @@ from assets import AssetManager
 
 
 class Grid:
+    """Game map data loaded from a text file — tile-based collision and queries."""
+
     def __init__(self, map_path, data=None):
+        """Load grid from file or use provided data (for tests).
+
+        Args:
+            map_path: Path to map text file (ignored if data is given).
+            data: Optional 2D list of tile values for inline construction.
+        """
         if data is not None:
             self.data = data
         else:
@@ -75,6 +85,7 @@ class Grid:
 
     @staticmethod
     def _load(path):
+        """Parse a map text file into a 2D list of integers."""
         rows = []
         with open(path, "r", encoding="utf-8") as handle:
             for line in handle:
@@ -93,9 +104,11 @@ class Grid:
 
     @property
     def map_size_px(self):
+        """Return (width, height) of the map in pixels."""
         return (self.cols * TILE_SIZE, self.rows * TILE_SIZE)
 
     def find_spawn_tile(self):
+        """Locate and return the TILE_SPAWN, replacing it with TILE_FLOOR."""
         for ty, row in enumerate(self.data):
             for tx, tile in enumerate(row):
                 if tile == TILE_SPAWN:
@@ -104,6 +117,7 @@ class Grid:
         return (1, 1)
 
     def collect_floor_tiles(self):
+        """Return list of all (x, y) floor tiles."""
         tiles = []
         for ty, row in enumerate(self.data):
             for tx, tile in enumerate(row):
@@ -113,40 +127,53 @@ class Grid:
 
     @staticmethod
     def adjacent_tiles(tile):
+        """Return four orthogonal neighbours of a tile."""
         tx, ty = tile
         return [(tx + 1, ty), (tx - 1, ty), (tx, ty + 1), (tx, ty - 1)]
 
     def tile_in_bounds(self, tile):
+        """Check if tile coordinates are within grid bounds."""
         tx, ty = tile
         return 0 <= ty < self.rows and 0 <= tx < self.cols
 
     def tile_is_placeable(self, tile):
+        """Return True if the tile is a walkable floor tile."""
         if not self.tile_in_bounds(tile):
             return False
         tx, ty = tile
         return self.data[ty][tx] == TILE_FLOOR
 
     def tile_is_furnace(self, tile):
+        """Return True if the tile contains a furnace."""
         if not self.tile_in_bounds(tile):
             return False
         tx, ty = tile
         return self.data[ty][tx] == TILE_FURNACE
 
     def tile_blocks_vision(self, tile):
+        """Return True if the tile blocks line of sight."""
         if not self.tile_in_bounds(tile):
             return True
         return self.data[tile[1]][tile[0]] in (TILE_WALL, TILE_WALL_TOP, TILE_FURNACE)
 
     def tile_is_walkable(self, tile):
+        """Return True if the tile is not a solid wall or furnace."""
         if not self.tile_in_bounds(tile):
             return False
         return self.data[tile[1]][tile[0]] not in SOLID_TILES
 
     @staticmethod
     def is_solid(tile_value):
+        """Check if a tile integer value represents a solid obstacle."""
         return tile_value in SOLID_TILES
 
     def iter_solid_tiles(self, rect, skip_tiles=None):
+        """Yield pygame.Rect for each solid tile overlapping the given rect.
+
+        Args:
+            rect: A pygame.Rect in pixel space.
+            skip_tiles: Optional set of tile values to ignore.
+        """
         left = max(0, rect.left // TILE_SIZE)
         right = min(self.cols - 1, (rect.right - 1) // TILE_SIZE)
         top = max(0, rect.top // TILE_SIZE)
@@ -161,6 +188,7 @@ class Grid:
 
     @staticmethod
     def tile_to_world_center(tile):
+        """Return pixel center (x, y) of a tile."""
         return (
             tile[0] * TILE_SIZE + TILE_SIZE / 2,
             tile[1] * TILE_SIZE + TILE_SIZE / 2,
@@ -168,6 +196,7 @@ class Grid:
 
     @staticmethod
     def direction_to_offset(direction):
+        """Convert movement vector to a cardinal tile offset (dx, dy)."""
         if direction.length_squared() == 0:
             return (0, 0)
         if abs(direction.x) >= abs(direction.y):
@@ -175,6 +204,7 @@ class Grid:
         return (0, 1 if direction.y > 0 else -1)
 
     def get_wall_tiles_near(self, center_tile, radius):
+        """Return list of wall tiles within a Chebyshev radius of center_tile."""
         tiles = []
         for ty in range(max(0, center_tile[1] - radius), min(self.rows - 1, center_tile[1] + radius) + 1):
             for tx in range(max(0, center_tile[0] - radius), min(self.cols - 1, center_tile[0] + radius) + 1):
@@ -243,6 +273,7 @@ class Grid:
 
     @staticmethod
     def pick_arm_targets(wall_tiles, monster_pos):
+        """Pick best left/right wall targets for monster arm grab anchors."""
         if not wall_tiles:
             return None, None
         world_positions = [Grid.tile_to_world_center(tile) for tile in wall_tiles]
@@ -265,8 +296,11 @@ class Grid:
 
 
 class FlowField:
+    """Breadth-first flow field for grid-based navigation with wall penalties."""
+
     @staticmethod
     def _wall_penalty(grid, tile):
+        """Extra cost for tiles adjacent to walls, to avoid crowding."""
         penalty = 0.0
         for neighbor in FlowField._neighbors8(tile):
             if not grid.tile_is_walkable(neighbor):
@@ -275,6 +309,7 @@ class FlowField:
 
     @staticmethod
     def _neighbors8(tile):
+        """Return eight-directional neighbours (including diagonals)."""
         tx, ty = tile
         return [
             (tx - 1, ty - 1), (tx, ty - 1), (tx + 1, ty - 1),
@@ -284,6 +319,15 @@ class FlowField:
 
     @staticmethod
     def build(grid, goals):
+        """Construct a cost field from goal tiles using Dijkstra.
+
+        Args:
+            grid: The Grid instance.
+            goals: List of (tile, bias_cost) tuples. Lower bias = more attractive.
+
+        Returns:
+            2D list of float costs (inf = unreachable).
+        """
         rows = grid.rows
         cols = grid.cols
         inf = float("inf")
@@ -312,6 +356,16 @@ class FlowField:
 
     @staticmethod
     def pick_step(flow_field, current_tile, rng):
+        """Pick the cheapest neighbouring tile from a flow field, with random tie-breaking.
+
+        Args:
+            flow_field: 2D cost array from FlowField.build.
+            current_tile: (x, y) current position.
+            rng: random.Random instance for tie-breaking.
+
+        Returns:
+            (x, y) next step tile, or None if stuck.
+        """
         tx, ty = current_tile
         if ty < 0 or ty >= len(flow_field) or tx < 0 or tx >= len(flow_field[0]):
             return None
@@ -330,8 +384,11 @@ class FlowField:
 
 
 class DataManager:
+    """JSON file reading for levels and notes."""
+
     @staticmethod
     def load_levels(path):
+        """Load levels config from a JSON file."""
         if not path.exists():
             return []
         with open(path, "r", encoding="utf-8") as handle:
@@ -339,6 +396,7 @@ class DataManager:
 
     @staticmethod
     def get_level_config(levels, level_number):
+        """Return the config dict for a specific level number."""
         for level in levels:
             if level.get("level") == level_number:
                 return level
@@ -346,6 +404,7 @@ class DataManager:
 
     @staticmethod
     def load_notes(path):
+        """Load notes data from a JSON file."""
         if not path.exists():
             return []
         with open(path, "r", encoding="utf-8") as handle:
@@ -353,6 +412,7 @@ class DataManager:
 
     @staticmethod
     def get_note(notes, level_number):
+        """Return the note dict for a specific level number."""
         for note in notes:
             if note.get("level") == level_number:
                 return note
@@ -360,10 +420,12 @@ class DataManager:
 
 
 class SaveManager:
+    """Persist and retrieve the highest unlocked level in a JSON file."""
     SAVE_PATH = Path(__file__).with_name("save.json")
 
     @classmethod
     def load_progress(cls):
+        """Read the highest unlocked level from the save file (default 1)."""
         default = 1
         try:
             if cls.SAVE_PATH.exists():
@@ -376,6 +438,7 @@ class SaveManager:
 
     @classmethod
     def save_progress(cls, unlocked_level):
+        """Write the highest unlocked level to the save file."""
         try:
             with open(cls.SAVE_PATH, "w", encoding="utf-8") as f:
                 json.dump({"unlocked_level": unlocked_level}, f)
@@ -384,7 +447,16 @@ class SaveManager:
 
 
 class Level:
+    """Orchestrates a single playable level — entities, items, debuffs, dark tiles, update/draw."""
+
     def __init__(self, grid, level_number, levels_data):
+        """Initialise level state from configuration.
+
+        Args:
+            grid: Grid instance with tile data.
+            level_number: Current level (1-indexed).
+            levels_data: Full levels.json list to look up this level's config.
+        """
         self.grid = grid
         self.level_number = level_number
 
@@ -425,6 +497,7 @@ class Level:
         self.monster_kill_radius_sq = MONSTER_KILL_RADIUS * MONSTER_KILL_RADIUS
 
     def setup_entities(self, player, items, monsters):
+        """Assign player, items, and monsters to the level."""
         self.player = player
         self.items = items
         self.monsters = monsters
@@ -572,6 +645,7 @@ class Level:
     # ─── level setup helpers ──────────────────────────────────────────────────
 
     def build_patrol_points(self):
+        """Generate diverse patrol waypoints using farthest-point sampling."""
         floor_tiles = self.grid.collect_floor_tiles()
         if not floor_tiles:
             return []
@@ -592,6 +666,7 @@ class Level:
         return [Grid.tile_to_world_center(tile) for tile in points]
 
     def pick_monster_spawns(self):
+        """Choose spawn tiles for monsters, respecting safe distance from player spawn."""
         count = 1 + self.monster_cloning
         if count <= 0:
             return []
@@ -630,6 +705,7 @@ class Level:
         return spawns[:count]
 
     def spawn_items(self):
+        """Place items on the map using config counts with distance-based relaxation."""
         from entities import Item
 
         floor_tiles = self.grid.collect_floor_tiles()
@@ -724,14 +800,17 @@ class Level:
 
     @staticmethod
     def get_player_tile(player):
+        """Return the tile (col, row) the player is currently on."""
         return (player.rect.centerx // TILE_SIZE, player.rect.centery // TILE_SIZE)
 
     @staticmethod
     def player_on_tile(player, tile):
+        """Check if the player rect overlaps the given tile."""
         tile_rect = pygame.Rect(tile[0] * TILE_SIZE, tile[1] * TILE_SIZE, TILE_SIZE, TILE_SIZE)
         return player.rect.colliderect(tile_rect)
 
     def get_light_tiles(self, center_tile, radius):
+        """Return set of tiles within a Chebyshev radius from center_tile."""
         if radius <= 0:
             return set()
         cx, cy = center_tile
@@ -754,12 +833,15 @@ class Level:
         return tiles
 
     def get_candle_light_tiles(self):
+        """Tiles lit by candles (used for cold immunity)."""
         return self._get_candle_tiles(CANDLE_LIGHT_RADIUS)
 
     def get_candle_visibility_tiles(self):
+        """Tiles visible through candlelight (slightly larger radius for item reveal)."""
         return self._get_candle_tiles(CANDLE_LIGHT_RADIUS + 1)
 
     def get_candle_centers(self):
+        """Return pixel-center positions of all active candles (player-held + placed)."""
         centers = []
         if self.player.carrying == ITEM_CANDLE:
             centers.append((self.player.rect.centerx, self.player.rect.centery))
@@ -775,17 +857,20 @@ class Level:
         return centers
 
     def item_is_visible(self, item_tile):
+        """Check if an item tile is revealed (not in dark, or candle-illuminated)."""
         visibility_tiles = self.get_candle_visibility_tiles()
         return item_tile not in self.dark_tiles or item_tile in visibility_tiles
 
     @staticmethod
     def get_item_at(items, tile):
+        """Return the first Item at a given tile, or None."""
         for item in items:
             if item.tile == tile:
                 return item
         return None
 
     def throw_stone(self, start_tile, direction):
+        """Compute landing tile for a thrown stone, stopping at walls or items."""
         last_valid = start_tile
         for step in range(1, STONE_THROW_RANGE + 1):
             tile = (start_tile[0] + direction[0] * step, start_tile[1] + direction[1] * step)
@@ -802,6 +887,16 @@ class Level:
         return last_valid
 
     def handle_interaction(self, stone_sprite, sfx, sound_events):
+        """Handle the player's action key (ENTER) — pick up, place, throw, eat, activate.
+
+        Args:
+            stone_sprite: Surface for the stone projectile.
+            sfx: Dict of sound name -> Sound, or None.
+            sound_events: List to append sound positions for monster hearing.
+
+        Returns:
+            (ate_apple, loaded_coal, note_level) tuple.
+        """
         from entities import Item, StoneProjectile
 
         player_tile = self.get_player_tile(self.player)
@@ -874,6 +969,12 @@ class Level:
         sound_events.append(pygame.Vector2(Grid.tile_to_world_center(tile)))
 
     def update(self, dt, sound_events):
+        """Advance the game state for one frame — movement, projectiles, monsters, debuffs, objectives.
+
+        Args:
+            dt: Delta time in seconds.
+            sound_events: List of sound positions for monster hearing.
+        """
         map_size_px = self.grid.map_size_px
 
         if not self.dead:
@@ -944,6 +1045,7 @@ class Level:
 
     @staticmethod
     def compute_camera(player_rect, map_size_px):
+        """Return a camera offset that keeps the player roughly centered."""
         map_w, map_h = map_size_px
         cam_x = player_rect.centerx - SCREEN_WIDTH // 2
         cam_y = player_rect.centery - SCREEN_HEIGHT // 2
@@ -952,6 +1054,16 @@ class Level:
         return pygame.Vector2(cam_x, cam_y)
 
     def draw_world(self, screen, camera, assets, item_assets, item_outlines, dt):
+        """Render the entire level onto screen — map, items, player, monsters, effects.
+
+        Args:
+            screen: Target surface.
+            camera: Camera offset vector.
+            assets: Dict of tile surface assets.
+            item_assets: Dict of item sprite assets.
+            item_outlines: Dict of item outline surfaces.
+            dt: Delta time in seconds.
+        """
         world_surface = pygame.Surface(screen.get_size())
         world_surface.fill((10, 10, 14))
 

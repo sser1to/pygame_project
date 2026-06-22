@@ -1,3 +1,5 @@
+"""Game entry point — splash, main menu, level progression loop, and credits."""
+
 import pygame
 
 from assets import AssetManager
@@ -60,7 +62,10 @@ from world import (
 
 
 class Game:
+    """Main game orchestrator — owns the display, audio, and level loop."""
+
     def __init__(self):
+        """Initialise pygame, load assets, and set up audio channels."""
         pygame.init()
         pygame.display.set_caption("Project Abyss")
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
@@ -160,6 +165,7 @@ class Game:
         self.ambient_channel.play(self.ambient_sound, loops=-1, fade_ms=MUSIC_FADE_MS)
 
     def _end_level(self, message, result_on_continue):
+        """Stop audio, show a message screen, then return the appropriate result."""
         self._stop_level_audio()
         pygame.event.clear()
         snapshot = self.screen.copy()
@@ -167,6 +173,14 @@ class Game:
         return "quit" if result == "quit" else result_on_continue
 
     def run_level(self, level_number):
+        """Run a single level: intro, entity setup, main game loop, and exit handling.
+
+        Args:
+            level_number: Level to play (1-indexed).
+
+        Returns:
+            "quit", "menu", "restart", or "complete".
+        """
         grid = Grid(MAP_PATH)
         levels = DataManager.load_levels(LEVELS_PATH)
         notes = DataManager.load_notes(NOTES_PATH)
@@ -322,6 +336,7 @@ class Game:
         return "menu"
 
     def run(self):
+        """Game entry point — splash, main menu loop, level progression, credits."""
         if SplashScreen.run(self.screen, self.clock) == "quit":
             pygame.quit()
             return

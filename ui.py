@@ -1,3 +1,5 @@
+"""Screen utilities, cached visual effects, HUD bars, and all menu / overlay screens."""
+
 import math
 import random
 
@@ -28,8 +30,11 @@ from settings import (
 
 
 class ScreenUtils:
+    """Utility methods for display management."""
+
     @staticmethod
     def toggle_fullscreen():
+        """Switch between windowed and fullscreen mode."""
         current = pygame.display.get_surface()
         if current is None:
             return pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -40,6 +45,8 @@ class ScreenUtils:
 
 
 class Effects:
+    """Cached screen-space effects — vignette, chase pulse, frost, dust, grain, hunger distortion."""
+
     def __init__(self):
         self.vignette_cache = {}
         self.vignette_overlay = None
@@ -54,6 +61,12 @@ class Effects:
         self.hunger_distortion_time = 0.0
 
     def draw_vignette(self, screen, intensity=1.0):
+        """Draw dark vignette around screen edges.
+
+        Args:
+            screen: Target surface.
+            intensity: 0.0–1.0 strength factor.
+        """
         if intensity <= 0.01:
             return
         vignette = self._get_vignette(*screen.get_size())
@@ -84,6 +97,7 @@ class Effects:
         return self.vignette_cache[key]
 
     def draw_chase_pulse(self, screen, chase_active, dt):
+        """Draw red edge pulse when the monster is chasing the player."""
         target = 1.0 if chase_active else 0.0
         rate = 4.0 if chase_active else 1.2
         self.chase_pulse_alpha += (target - self.chase_pulse_alpha) * min(1.0, rate * dt)
@@ -127,6 +141,7 @@ class Effects:
         return self.chase_glow_cache[key]
 
     def draw_frost_overlay(self, screen, cold_value, freeze_enabled):
+        """Draw blue frost overlay intensifying with cold value."""
         if not freeze_enabled or cold_value <= 20:
             return
         intensity = min(1.0, (cold_value - 20) / 60.0)
@@ -155,6 +170,7 @@ class Effects:
         return self.frost_cache[key]
 
     def draw_dust(self, screen, camera, dt):
+        """Draw floating dust particles that drift past the camera."""
         width, height = SCREEN_WIDTH, SCREEN_HEIGHT
         cam_x, cam_y = camera.x, camera.y
 
@@ -191,6 +207,12 @@ class Effects:
         screen.blit(self.dust_overlay, (0, 0))
 
     def draw_film_grain(self, screen, intensity=0.15):
+        """Draw random white pixels for a film grain effect.
+
+        Args:
+            screen: Target surface.
+            intensity: 0.0–1.0 opacity factor.
+        """
         if intensity <= 0:
             return
         grain = self._get_grain(*screen.get_size())
@@ -211,6 +233,7 @@ class Effects:
         return self.grain_cache[key]
 
     def draw_hunger_distortion(self, screen, hunger_value, dt):
+        """Apply a wavy RGB-offset distortion when hunger is above 50%."""
         if hunger_value <= 50.0:
             self.hunger_distortion_time = 0.0
             return
@@ -234,8 +257,11 @@ class Effects:
 
 
 class HUD:
+    """Static HUD drawing methods for cold/hunger bars and objectives text."""
+
     @staticmethod
     def draw_cold_bar(screen, cold_value):
+        """Draw cold meter bar at top-left."""
         bar_width = 220
         bar_height = 16
         x = 16
@@ -247,6 +273,7 @@ class HUD:
 
     @staticmethod
     def draw_hunger_bar(screen, hunger_value):
+        """Draw hunger meter bar below the cold bar."""
         bar_width = 220
         bar_height = 16
         x = 16
@@ -258,6 +285,7 @@ class HUD:
 
     @staticmethod
     def draw_objectives(screen, font, coal_loaded, coal_required, levers_active, levers_required):
+        """Draw coal and lever objective counters at top-right."""
         lines = []
         if coal_required > 0:
             lines.append(f"Уголь: {coal_loaded}/{coal_required}")
@@ -280,8 +308,15 @@ class HUD:
 
 
 class SplashScreen:
+    """Title screen shown on game start — fades in/out over 5s."""
+
     @staticmethod
     def run(screen, clock):
+        """Run the splash screen loop.
+
+        Returns:
+            "ok" if skipped or finished, "quit" on window close.
+        """
         big_font = pygame.font.SysFont(None, 120)
         text_surface = big_font.render("Project Abyss", True, (255, 255, 255))
         text_rect = text_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
@@ -318,7 +353,16 @@ class SplashScreen:
 
 
 class IntroScreen:
+    """Level intro screen — shows monster abilities and debuffs with typewriter text."""
+
     def __init__(self, abilities_config, debuffs_config, level_number):
+        """Prepares the intro text lines from config.
+
+        Args:
+            abilities_config: Dict of monster ability flags.
+            debuffs_config: Dict of debuff flags/values.
+            level_number: Current level number.
+        """
         self.lines = self._build_lines(abilities_config, debuffs_config)
         self.level_number = level_number
         self.font = pygame.font.SysFont(None, 36)
@@ -390,6 +434,11 @@ class IntroScreen:
             remaining -= len(text)
 
     def run(self, screen, clock):
+        """Run the intro typewriter animation loop.
+
+        Returns:
+            "ok", "menu", or "quit".
+        """
         if not self.lines or self.total_chars <= 0:
             return "ok"
 
@@ -453,8 +502,21 @@ class IntroScreen:
 
 
 class MessageScreen:
+    """Full-screen message with typewriter effect, fade-in, and auto-dismiss."""
+
     @staticmethod
     def run(screen, clock, message, background=None):
+        """Run the message screen.
+
+        Args:
+            screen: Display surface.
+            clock: pygame clock.
+            message: Text to display.
+            background: Optional snapshot to blur/dim behind the text.
+
+        Returns:
+            "done" or "quit".
+        """
         font = pygame.font.SysFont(None, 48)
         total_chars = len(message)
         if total_chars <= 0:
@@ -518,8 +580,22 @@ class MessageScreen:
 
 
 class NoteScreen:
+    """Paper-styled note display with word-wrapped text."""
+
     @staticmethod
     def run(screen, clock, title, text, background=None):
+        """Run the note screen.
+
+        Args:
+            screen: Display surface.
+            clock: pygame clock.
+            title: Note title text.
+            text: Note body text (\\n for paragraphs).
+            background: Optional snapshot to dim behind the note.
+
+        Returns:
+            "done" or "quit".
+        """
         title_font = pygame.font.SysFont(None, 38)
         text_font = pygame.font.SysFont(None, 26)
         prompt_font = pygame.font.SysFont(None, 24)
@@ -610,8 +686,15 @@ class NoteScreen:
 
 
 class CreditsScreen:
+    """End-game credits with typewriter effect."""
+
     @staticmethod
     def run(screen, clock):
+        """Run the credits display.
+
+        Returns:
+            "done" or "quit".
+        """
         font = pygame.font.SysFont(None, 36)
         lines = [
             "Вы смогли выбраться из злополучного цикла.",
@@ -680,8 +763,15 @@ class CreditsScreen:
 
 
 class GuideScreen:
+    """Controls and mechanics guide shown from the menu."""
+
     @staticmethod
     def run(screen, clock):
+        """Run the guide screen.
+
+        Returns:
+            "menu" or "quit".
+        """
         font = pygame.font.SysFont(None, 24)
         header_font = pygame.font.SysFont(None, 36)
         title_font = pygame.font.SysFont(None, 28)
@@ -780,8 +870,21 @@ class GuideScreen:
 
 
 class MenuScreen:
+    """Level selection menu with arrow-key navigation."""
+
     @staticmethod
     def run(screen, clock, initial_level, unlocked_level):
+        """Run the menu screen.
+
+        Args:
+            screen: Display surface.
+            clock: pygame clock.
+            initial_level: Level number to start selected.
+            unlocked_level: Highest level the player can access.
+
+        Returns:
+            Selected level number, or None to quit.
+        """
         title_font = pygame.font.SysFont(None, 72)
         label_font = pygame.font.SysFont(None, 36)
         button_font = pygame.font.SysFont(None, 32)

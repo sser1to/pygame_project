@@ -1,3 +1,5 @@
+"""Game entities — Player, Monster, Item, StoneProjectile, and item rendering helpers."""
+
 import math
 import random
 
@@ -30,7 +32,15 @@ from world import FlowField, Grid
 
 
 class Player:
+    """Player character controlled via WASD keys."""
     def __init__(self, start_px, size_px, images):
+        """Initialize player at a world position.
+
+        Args:
+            start_px: Starting (x, y) pixel position.
+            size_px: Width and height of the player rect.
+            images: List of animation frame surfaces.
+        """
         self.pos = pygame.Vector2(start_px)
         self.rect = pygame.Rect(self.pos.x, self.pos.y, size_px, size_px)
         self.images = images
@@ -41,6 +51,14 @@ class Player:
         self.carrying = None
 
     def update(self, dt, grid, map_size_px, skip_solid_tiles=None):
+        """Handle keyboard input and update position, animation.
+
+        Args:
+            dt: Delta time in seconds.
+            grid: Grid for collision checks.
+            map_size_px: (width, height) of the map in pixels.
+            skip_solid_tiles: Optional set of tile values to treat as non-solid.
+        """
         keys = pygame.key.get_pressed()
         move = pygame.Vector2(0, 0)
         if keys[pygame.K_w]:
@@ -64,6 +82,7 @@ class Player:
         self.update_animation(dt)
 
     def move_and_collide(self, dx, dy, grid, skip_solid_tiles=None):
+        """Move player by (dx, dy) with collision resolution."""
         if dx != 0:
             self.pos.x += dx
             self.rect.x = round(self.pos.x)
@@ -74,6 +93,7 @@ class Player:
             self.resolve_collisions(grid, axis="y", skip_solid_tiles=skip_solid_tiles)
 
     def resolve_collisions(self, grid, axis, skip_solid_tiles=None):
+        """Push player out of solid tiles along one axis."""
         for tile_rect in grid.iter_solid_tiles(self.rect, skip_solid_tiles):
             if not self.rect.colliderect(tile_rect):
                 continue
@@ -91,6 +111,7 @@ class Player:
                 self.pos.y = self.rect.y
 
     def clamp_to_map(self, map_size_px):
+        """Keep player rect inside map boundaries."""
         map_w, map_h = map_size_px
         self.pos.x = max(0, min(self.pos.x, map_w - self.rect.width))
         self.pos.y = max(0, min(self.pos.y, map_h - self.rect.height))
@@ -98,6 +119,7 @@ class Player:
         self.rect.y = round(self.pos.y)
 
     def update_animation(self, dt):
+        """Cycle through walk animation frames."""
         if not self.moving:
             self.anim_index = 0
             self.anim_timer = 0.0
@@ -108,11 +130,20 @@ class Player:
             self.anim_index = (self.anim_index + 1) % len(self.images)
 
     def draw(self, screen, offset):
+        """Draw player sprite on screen with camera offset."""
         screen.blit(self.images[self.anim_index], (self.rect.x - offset.x, self.rect.y - offset.y))
 
 
 class Monster:
+    """Enemy that patrols and chases the player via sight, sound, and smell."""
     def __init__(self, start_pos, assets, patrol_points):
+        """Initialize monster with randomised behaviour parameters.
+
+        Args:
+            start_pos: Starting (x, y) pixel position.
+            assets: Dict with "head", "arm_upper", "arm_lower" surfaces.
+            patrol_points: List of (x, y) patrol waypoints.
+        """
         self.pos = pygame.Vector2(start_pos)
         self.velocity = pygame.Vector2(0, 0)
         self.head = assets["head"]
@@ -149,6 +180,17 @@ class Monster:
             self.patrol_index = self.rng.randrange(len(self.patrol_points))
 
     def update(self, dt, player_pos, grid, sound_events, hearing_enabled, smell_enabled, vision_enabled):
+        """Update monster AI — sensing, target selection, navigation.
+
+        Args:
+            dt: Delta time in seconds.
+            player_pos: Player's (x, y) pixel position.
+            grid: Grid for line-of-sight and navigation.
+            sound_events: List of sound positions for hearing.
+            hearing_enabled: Whether hearing sense is active.
+            smell_enabled: Whether smell sense is active.
+            vision_enabled: Whether vision sense is active.
+        """
         player_vec = pygame.Vector2(player_pos)
 
         if not hearing_enabled:
@@ -280,6 +322,7 @@ class Monster:
         return (int(pos[0] // TILE_SIZE), int(pos[1] // TILE_SIZE))
 
     def next_patrol_target(self):
+        """Return next patrol waypoint, cycling through the list."""
         if not self.patrol_points:
             return None
         if self.patrol_index >= len(self.patrol_points):
@@ -289,6 +332,12 @@ class Monster:
         return target
 
     def draw(self, screen, offset):
+        """Draw monster head and articulated arms with camera offset.
+
+        Args:
+            screen: Surface to draw on.
+            offset: Camera offset vector.
+        """
         head_center = pygame.Vector2(self.pos.x - offset.x, self.pos.y - offset.y)
         head_rect = self.head.get_rect(center=(head_center.x, head_center.y))
 
@@ -301,6 +350,7 @@ class Monster:
         screen.blit(self.head, head_rect.topleft)
 
     def get_shoulders(self):
+        """Return (left, right) shoulder world positions from head dimensions."""
         shoulder_dx = self.head.get_width() * 0.35
         shoulder_dy = self.head.get_height() * 0.1
         left_shoulder = pygame.Vector2(self.pos.x - shoulder_dx, self.pos.y + shoulder_dy)
@@ -308,6 +358,7 @@ class Monster:
         return left_shoulder, right_shoulder
 
     def update_anchors(self, grid):
+        """Update arm anchor points to grab nearby walls or hang downward."""
         if grid is None:
             return
         center_tile = (int(self.pos.x // TILE_SIZE), int(self.pos.y // TILE_SIZE))
@@ -337,6 +388,7 @@ class Monster:
             self.right_anchor = self.right_anchor.lerp(desired_right, MONSTER_ANCHOR_LERP)
 
     def apply_grab_offset(self, shoulder, target, phase):
+        """Apply sine-wave sway to anchored arm during movement."""
         if target is None:
             return shoulder + pygame.Vector2(0, TILE_SIZE * 0.9)
         target_vec = pygame.Vector2(target)
@@ -350,6 +402,7 @@ class Monster:
         return target_vec + direction * offset
 
     def draw_arm(self, screen, offset, shoulder, target, bend_sign, flip_lower=False):
+        """Solve IK and draw upper and lower arm segments."""
         upper_len = self.arm_upper.get_width() * 0.9
         lower_len = self.arm_lower.get_width() * 0.9
         upper_angle, lower_angle, elbow = self.solve_arm_ik(shoulder, target, upper_len, lower_len, bend_sign)
@@ -363,6 +416,7 @@ class Monster:
 
     @staticmethod
     def solve_arm_ik(shoulder, target, upper_len, lower_len, bend_sign):
+        """Two-bone inverse kinematics — return (upper_angle, lower_angle, elbow_pos)."""
         dx = target.x - shoulder.x
         dy = target.y - shoulder.y
         dist = math.hypot(dx, dy)
@@ -388,6 +442,7 @@ class Monster:
 
     @staticmethod
     def blit_segment(screen, image, pivot, angle_deg):
+        """Draw a rotated image aligned at its pivot point."""
         rotated = pygame.transform.rotate(image, -angle_deg)
         pivot_offset = pygame.Vector2(0, image.get_height() / 2)
         image_center = pygame.Vector2(image.get_width() / 2, image.get_height() / 2)
@@ -398,12 +453,21 @@ class Monster:
 
 
 class Item:
+    """A world item that can be picked up or interacted with."""
     def __init__(self, kind, tile, active=False):
+        """Initialize item.
+
+        Args:
+            kind: Item type string (e.g. ITEM_COAL).
+            tile: (col, row) tile position.
+            active: Whether lever is pulled (used for ITEM_LEVER).
+        """
         self.kind = kind
         self.tile = tile
         self.active = active
 
     def draw(self, screen, assets, offset, outline=None):
+        """Draw item sprite and optional outline (nearest pickable)."""
         sprite = get_item_sprite(self, assets)
         world_x = self.tile[0] * TILE_SIZE + (TILE_SIZE - sprite.get_width()) // 2
         world_y = self.tile[1] * TILE_SIZE + (TILE_SIZE - sprite.get_height()) // 2
@@ -413,7 +477,16 @@ class Item:
 
 
 class StoneProjectile:
+    """Animated stone thrown by the player."""
     def __init__(self, start_pos, end_pos, sprite, landing_tile):
+        """Initialize projectile with linear interpolation.
+
+        Args:
+            start_pos: (x, y) world start pixel.
+            end_pos: (x, y) world end pixel.
+            sprite: Surface to draw.
+            landing_tile: (col, row) tile where the stone lands.
+        """
         self.start = pygame.Vector2(start_pos)
         self.end = pygame.Vector2(end_pos)
         self.sprite = sprite
@@ -425,6 +498,7 @@ class StoneProjectile:
         self.done = False
 
     def update(self, dt):
+        """Move projectile toward end position via linear interpolation."""
         if self.done:
             return
         self.elapsed += dt
@@ -434,6 +508,7 @@ class StoneProjectile:
             self.done = True
 
     def draw(self, screen, offset):
+        """Draw projectile sprite with camera offset."""
         if self.pos is None:
             return
         world_x = self.pos.x - self.sprite.get_width() / 2
@@ -442,22 +517,26 @@ class StoneProjectile:
 
 
 def _lever_key(item):
+    """Return asset key for lever in its current state."""
     return "lever_on" if item.active else "lever_off"
 
 
 def get_item_sprite(item, assets):
+    """Return the correct sprite for an item (handles lever on/off)."""
     if item.kind == ITEM_LEVER:
         return assets[_lever_key(item)]
     return assets[item.kind]
 
 
 def get_item_outline_key(item):
+    """Return outline key for an item (handles lever on/off)."""
     if item.kind == ITEM_LEVER:
         return _lever_key(item)
     return item.kind
 
 
 def build_item_outlines(item_assets, color):
+    """Generate outline surfaces for all item sprites using mask."""
     outlines = {}
     for key, sprite in item_assets.items():
         mask = pygame.mask.from_surface(sprite)

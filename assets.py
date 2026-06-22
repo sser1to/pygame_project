@@ -1,3 +1,5 @@
+"""Asset loading utilities — SVG textures, sound effects, tints, and alpha masks."""
+
 import io
 import importlib
 
@@ -7,9 +9,19 @@ from settings import SCREEN_HEIGHT, SCREEN_WIDTH
 
 
 class AssetManager:
+    """Utility class for loading textures, sounds, and applying tints."""
 
     @staticmethod
     def load_svg_surface(path, size):
+        """Load an SVG file as a pygame surface, with fallback to PNG/PNG placeholder.
+
+        Args:
+            path: Path to the SVG file.
+            size: (width, height) target size in pixels.
+
+        Returns:
+            A pygame Surface with per-pixel alpha.
+        """
         try:
             cairosvg = importlib.import_module("cairosvg")
             png_bytes = cairosvg.svg2png(
@@ -30,6 +42,16 @@ class AssetManager:
 
     @staticmethod
     def load_sound(path, volume=1.0, speed=1.0):
+        """Load a sound file, optionally adjusting playback speed via resampling.
+
+        Args:
+            path: Path to the audio file.
+            volume: Playback volume (0.0–1.0).
+            speed: Playback speed multiplier (1.0 = normal).
+
+        Returns:
+            A pygame Sound object.
+        """
         sound = pygame.mixer.Sound(str(path))
         if speed == 1.0:
             sound.set_volume(volume)
@@ -64,12 +86,22 @@ class AssetManager:
 
     @staticmethod
     def tint_surface(surface, tint):
+        """Multiply RGB channels of a surface by a tint color."""
         tinted = surface.copy()
         tinted.fill(tint, special_flags=pygame.BLEND_RGB_MULT)
         return tinted
 
     @staticmethod
     def soften_alpha_mask(surface, passes):
+        """Blur an alpha mask by repeatedly downscaling and upscaling.
+
+        Args:
+            surface: Source surface with alpha.
+            passes: Number of blur iterations (higher = softer).
+
+        Returns:
+            Blurred surface at (SCREEN_WIDTH, SCREEN_HEIGHT).
+        """
         for _ in range(passes):
             surface = pygame.transform.smoothscale(
                 surface,
