@@ -41,7 +41,7 @@ def test_spawn_items_places_requested_counts():
         "items": {"candles": 1, "stones": 1, "food": 1},
         "objectives": {"coal": 1, "levers": 2},
     }]
-    level = Level(grid, 1, levels_data, [])
+    level = Level(grid, 1, levels_data)
     items = level.spawn_items()
     assert len(items) == 7
 
@@ -60,7 +60,7 @@ def test_build_dark_tiles_returns_subset_of_floor(small_grid):
         "objectives": {},
         "debuffs": {"darkness_amount": 0.8},
     }]
-    level = Level(grid, 1, levels_data, [])
+    level = Level(grid, 1, levels_data)
 
     floor = set()
     for y, row in enumerate(grid.data):

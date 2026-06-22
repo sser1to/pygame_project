@@ -40,7 +40,7 @@ def test_spawn_items_relaxation_small_grid():
         "items": {"candles": 1, "stones": 0, "food": 1},
         "objectives": {"coal": 1, "levers": 2},
     }]
-    level = Level(grid, 1, levels_data, [])
+    level = Level(grid, 1, levels_data)
     items = level.spawn_items()
     assert len(items) == 6
     kinds = [i.kind for i in items]
@@ -57,7 +57,7 @@ def test_get_candle_light_tiles_player_and_items():
         "items": {"candles": 2},
         "objectives": {},
     }]
-    level = Level(grid, 1, levels_data, [])
+    level = Level(grid, 1, levels_data)
 
     class DummyPlayer:
         def __init__(self):
@@ -87,6 +87,6 @@ def test_pick_monster_spawns_returns_count():
         "objectives": {},
         "monster_abilities": {"cloning": 1},
     }]
-    level = Level(grid, 1, levels_data, [])
+    level = Level(grid, 1, levels_data)
     spawns = level.pick_monster_spawns()
     assert len(spawns) == 2

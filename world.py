@@ -25,6 +25,8 @@ from settings import (
     ITEM_SPAWN_SAMPLES,
     ITEM_STONE,
     ITEM_NOTE,
+    ITEM_SPAWN_RELAX_SAME,
+    ITEM_SPAWN_RELAX_SPAWN,
     LEVEL_COUNT,
     MONSTER_PATROL_COUNT,
     MONSTER_PATROL_SAMPLE_SIZE,
@@ -47,9 +49,6 @@ from settings import (
     COLD_RECOVERY_RATE,
     HUNGER_MAX,
     HUNGER_RATE,
-    HUNGER_RESTORE,
-    FREEZE_ENABLED,
-    HUNGER_ENABLED,
     MONSTER_KILL_RADIUS,
     SPOTLIGHT_RADIUS,
     SPOTLIGHT_ALPHA,
@@ -57,6 +56,10 @@ from settings import (
     SPOTLIGHT_PULSE_SPEED,
     SPOTLIGHT_PULSE_AMOUNT,
     PLAYER_LIGHT_ALPHA,
+    STONE_THROW_RANGE,
+    EXIT_GLOW_PULSE_MIN,
+    EXIT_GLOW_PULSE_AMP,
+    EXIT_GLOW_PULSE_SPEED,
 )
 from assets import AssetManager
 
@@ -381,27 +384,26 @@ class SaveManager:
 
 
 class Level:
-    def __init__(self, grid, level_number, levels_data, notes_data):
+    def __init__(self, grid, level_number, levels_data):
         self.grid = grid
         self.level_number = level_number
 
         config = DataManager.get_level_config(levels_data, level_number)
         items_config = config.get("items", {})
         objectives_config = config.get("objectives", {})
-        self.debuffs_config = config.get("debuffs", {})
-        self.abilities_config = config.get("monster_abilities", {})
+        debuffs_config = config.get("debuffs", {})
+        abilities_config = config.get("monster_abilities", {})
 
         self.objectives_config = objectives_config
         self.items_config = items_config
-        self.notes_data = notes_data
 
-        self.monster_hearing = self.abilities_config.get("hearing", False)
-        self.monster_smell = self.abilities_config.get("smell", False)
-        self.monster_vision = self.abilities_config.get("vision", False)
-        self.monster_cloning = max(0, int(self.abilities_config.get("cloning", 0)))
-        self.freeze_enabled = self.debuffs_config.get("freezing", False)
-        self.hunger_enabled = self.debuffs_config.get("hunger", False)
-        self.darkness_amount = self.debuffs_config.get("darkness_amount", 0)
+        self.monster_hearing = abilities_config.get("hearing", False)
+        self.monster_smell = abilities_config.get("smell", False)
+        self.monster_vision = abilities_config.get("vision", False)
+        self.monster_cloning = max(0, int(abilities_config.get("cloning", 0)))
+        self.freeze_enabled = debuffs_config.get("freezing", False)
+        self.hunger_enabled = debuffs_config.get("hunger", False)
+        self.darkness_amount = debuffs_config.get("darkness_amount", 0)
         self.coal_required = max(0, int(objectives_config.get("coal", 0)))
         self.levers_required = max(0, int(objectives_config.get("levers", 0)))
 
@@ -426,8 +428,6 @@ class Level:
         self.player = player
         self.items = items
         self.monsters = monsters
-
-    # ─── darkness building ────────────────────────────────────────────────────
 
     def _build_dark_tiles(self, spawn_tile):
         floor_tiles = self.grid.collect_floor_tiles()
@@ -490,12 +490,7 @@ class Level:
 
     @staticmethod
     def _neighbors8(tile):
-        tx, ty = tile
-        return [
-            (tx - 1, ty - 1), (tx, ty - 1), (tx + 1, ty - 1),
-            (tx - 1, ty), (tx + 1, ty),
-            (tx - 1, ty + 1), (tx, ty + 1), (tx + 1, ty + 1),
-        ]
+        return FlowField._neighbors8(tile)
 
     @staticmethod
     def _lerp(a, b, t):
@@ -685,9 +680,9 @@ class Level:
                     if candidate is not None:
                         break
                     if current_same_sq > 0:
-                        current_same_sq = max(0, int(current_same_sq * 0.85))
+                        current_same_sq = max(0, int(current_same_sq * ITEM_SPAWN_RELAX_SAME))
                     elif current_spawn_sq > 0:
-                        current_spawn_sq = max(0, int(current_spawn_sq * 0.9))
+                        current_spawn_sq = max(0, int(current_spawn_sq * ITEM_SPAWN_RELAX_SPAWN))
                 if candidate is None:
                     if not available:
                         break
@@ -727,8 +722,6 @@ class Level:
         dy = a[1] - b[1]
         return dx * dx + dy * dy
 
-    # ─── player / tile queries ────────────────────────────────────────────────
-
     @staticmethod
     def get_player_tile(player):
         return (player.rect.centerx // TILE_SIZE, player.rect.centery // TILE_SIZE)
@@ -751,24 +744,20 @@ class Level:
                 light_tiles.add(tile)
         return light_tiles
 
-    def get_candle_light_tiles(self):
-        light_tiles = set()
+    def _get_candle_tiles(self, radius):
+        tiles = set()
         if self.player.carrying == ITEM_CANDLE:
-            light_tiles.update(self.get_light_tiles(self.get_player_tile(self.player), CANDLE_LIGHT_RADIUS))
+            tiles.update(self.get_light_tiles(self.get_player_tile(self.player), radius))
         for item in self.items:
             if item.kind == ITEM_CANDLE:
-                light_tiles.update(self.get_light_tiles(item.tile, CANDLE_LIGHT_RADIUS))
-        return light_tiles
+                tiles.update(self.get_light_tiles(item.tile, radius))
+        return tiles
+
+    def get_candle_light_tiles(self):
+        return self._get_candle_tiles(CANDLE_LIGHT_RADIUS)
 
     def get_candle_visibility_tiles(self):
-        visibility_tiles = set()
-        radius = CANDLE_LIGHT_RADIUS + 1
-        if self.player.carrying == ITEM_CANDLE:
-            visibility_tiles.update(self.get_light_tiles(self.get_player_tile(self.player), radius))
-        for item in self.items:
-            if item.kind == ITEM_CANDLE:
-                visibility_tiles.update(self.get_light_tiles(item.tile, radius))
-        return visibility_tiles
+        return self._get_candle_tiles(CANDLE_LIGHT_RADIUS + 1)
 
     def get_candle_centers(self):
         centers = []
@@ -796,15 +785,13 @@ class Level:
                 return item
         return None
 
-    # ─── interaction ──────────────────────────────────────────────────────────
-
     def throw_stone(self, start_tile, direction):
         last_valid = start_tile
-        for step in range(1, 4):
+        for step in range(1, STONE_THROW_RANGE + 1):
             tile = (start_tile[0] + direction[0] * step, start_tile[1] + direction[1] * step)
             if not self.grid.tile_in_bounds(tile):
                 break
-            if self.grid.data[tile[1]][tile[0]] in (TILE_WALL, TILE_WALL_TOP, TILE_FURNACE):
+            if self.grid.tile_blocks_vision(tile):
                 break
             if self.get_item_at(self.items, tile) is not None:
                 break
@@ -886,8 +873,6 @@ class Level:
     def _emit_sound(sound_events, tile):
         sound_events.append(pygame.Vector2(Grid.tile_to_world_center(tile)))
 
-    # ─── update ────────────────────────────────────────────────────────────────
-
     def update(self, dt, sound_events):
         map_size_px = self.grid.map_size_px
 
@@ -957,8 +942,6 @@ class Level:
             else:
                 self.level_complete = coal_done and levers_done
 
-    # ─── camera ────────────────────────────────────────────────────────────────
-
     @staticmethod
     def compute_camera(player_rect, map_size_px):
         map_w, map_h = map_size_px
@@ -967,8 +950,6 @@ class Level:
         cam_x = max(0, min(cam_x, map_w - SCREEN_WIDTH))
         cam_y = max(0, min(cam_y, map_h - SCREEN_HEIGHT))
         return pygame.Vector2(cam_x, cam_y)
-
-    # ─── drawing ──────────────────────────────────────────────────────────────
 
     def draw_world(self, screen, camera, assets, item_assets, item_outlines, dt):
         world_surface = pygame.Surface(screen.get_size())
@@ -1145,7 +1126,7 @@ class Level:
     def _draw_exit_glow(self, screen, offset):
         rects = self.grid.get_all_furnace_rects()
         t = pygame.time.get_ticks() / 1000.0
-        pulse = 0.85 + 0.15 * abs(math.sin(t * 2.5))
+        pulse = EXIT_GLOW_PULSE_MIN + EXIT_GLOW_PULSE_AMP * abs(math.sin(t * EXIT_GLOW_PULSE_SPEED))
         for rect in rects:
             screen_rect = pygame.Rect(rect.x - offset.x, rect.y - offset.y, rect.width, rect.height)
             glow = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)

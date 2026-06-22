@@ -441,15 +441,19 @@ class StoneProjectile:
         screen.blit(self.sprite, (world_x - offset.x, world_y - offset.y))
 
 
+def _lever_key(item):
+    return "lever_on" if item.active else "lever_off"
+
+
 def get_item_sprite(item, assets):
     if item.kind == ITEM_LEVER:
-        return assets["lever_on"] if item.active else assets["lever_off"]
+        return assets[_lever_key(item)]
     return assets[item.kind]
 
 
 def get_item_outline_key(item):
     if item.kind == ITEM_LEVER:
-        return "lever_on" if item.active else "lever_off"
+        return _lever_key(item)
     return item.kind
 
 

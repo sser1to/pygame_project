@@ -1,7 +1,7 @@
 import pygame
 
 from assets import AssetManager
-from entities import Item, Monster, Player, build_item_outlines
+from entities import Monster, Player, build_item_outlines
 from settings import (
     AMBIENT_VOLUME,
     CHASE_VOLUME,
@@ -19,6 +19,10 @@ from settings import (
     ITEM_OUTLINE_COLOR,
     ITEM_STONE,
     ITEM_NOTE,
+    FILM_GRAIN_ALPHA,
+    VIGNETTE_INTENSITY_NORMAL,
+    VIGNETTE_INTENSITY_CHASE,
+    PLAYER_SIZE_FACTOR,
     LEVELS_PATH,
     NOTES_PATH,
     MAP_PATH,
@@ -90,7 +94,7 @@ class Game:
         }
         self.item_outlines = build_item_outlines(self.item_assets, ITEM_OUTLINE_COLOR)
 
-        player_size = int(TILE_SIZE * 0.75)
+        player_size = int(TILE_SIZE * PLAYER_SIZE_FACTOR)
         self.player_images = [
             AssetManager.load_svg_surface(TEXTURES_DIR / "player_stand.svg", (player_size, player_size)),
             AssetManager.load_svg_surface(TEXTURES_DIR / "player_walk.svg", (player_size, player_size)),
@@ -155,6 +159,13 @@ class Game:
     def _play_level_audio(self):
         self.ambient_channel.play(self.ambient_sound, loops=-1, fade_ms=MUSIC_FADE_MS)
 
+    def _end_level(self, message, result_on_continue):
+        self._stop_level_audio()
+        pygame.event.clear()
+        snapshot = self.screen.copy()
+        result = MessageScreen.run(self.screen, self.clock, message, snapshot)
+        return "quit" if result == "quit" else result_on_continue
+
     def run_level(self, level_number):
         grid = Grid(MAP_PATH)
         levels = DataManager.load_levels(LEVELS_PATH)
@@ -170,7 +181,7 @@ class Game:
         if intro_result == "menu":
             return "menu"
 
-        level = Level(grid, level_number, levels, notes)
+        level = Level(grid, level_number, levels)
 
         start_x = level.spawn_tile[0] * TILE_SIZE + (TILE_SIZE - self.player_size) / 2
         start_y = level.spawn_tile[1] * TILE_SIZE + (TILE_SIZE - self.player_size) / 2
@@ -269,10 +280,10 @@ class Game:
 
             level.draw_world(self.screen, camera, self.assets, self.item_assets, self.item_outlines, dt)
 
-            vignette_intensity = 0.65 if not self.chase_active else 0.75
+            vignette_intensity = VIGNETTE_INTENSITY_NORMAL if not self.chase_active else VIGNETTE_INTENSITY_CHASE
             self.effects.draw_dust(self.screen, camera, dt)
             self.effects.draw_frost_overlay(self.screen, level.cold_value, level.freeze_enabled)
-            self.effects.draw_film_grain(self.screen, 0.12)
+            self.effects.draw_film_grain(self.screen, FILM_GRAIN_ALPHA)
             self.effects.draw_vignette(self.screen, vignette_intensity)
             self.effects.draw_chase_pulse(self.screen, self.chase_active, dt)
 
@@ -304,17 +315,9 @@ class Game:
             pygame.display.flip()
 
             if level.dead:
-                self._stop_level_audio()
-                pygame.event.clear()
-                snapshot = self.screen.copy()
-                result = MessageScreen.run(self.screen, self.clock, "Вы умерли", snapshot)
-                return "quit" if result == "quit" else "restart"
+                return self._end_level("Вы умерли", "restart")
             if level.level_complete:
-                self._stop_level_audio()
-                pygame.event.clear()
-                snapshot = self.screen.copy()
-                result = MessageScreen.run(self.screen, self.clock, "Вы прошли уровень!", snapshot)
-                return "quit" if result == "quit" else "complete"
+                return self._end_level("Вы прошли уровень!", "complete")
 
         return "menu"
 
