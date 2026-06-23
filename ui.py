@@ -85,14 +85,16 @@ class Effects:
                 import numpy as np
 
                 arr = pygame.surfarray.pixels_alpha(surf)
-                cx, cy = width // 2, height // 2
+                h, w = arr.shape
+                cx, cy = w // 2, h // 2
                 max_dist = math.sqrt(cx**2 + cy**2)
-                y_grid, x_grid = np.ogrid[:height, :width]
-                dist = np.sqrt((x_grid - cx) ** 2 + (y_grid - cy) ** 2)
-                arr[:] = np.clip(255 * (dist / max_dist) ** 1.8, 0, 255).astype(np.uint8).T
+                y_idx = np.arange(h).reshape(h, 1)
+                x_idx = np.arange(w).reshape(1, w)
+                dist = np.sqrt((x_idx - cx) ** 2 + (y_idx - cy) ** 2)
+                arr[:] = np.clip(255 * (dist / max_dist) ** 1.8, 0, 255).astype(np.uint8)
                 del arr
             except Exception:
-                surf.fill((0, 0, 0, 180))
+                surf = self._make_pygame_gradient(width, height, (0, 0, 0), 1.8)
             self.vignette_cache[key] = surf
         return self.vignette_cache[key]
 
@@ -119,6 +121,30 @@ class Effects:
         self.chase_glow_overlay.set_alpha(int(pulse * 80 * self.chase_pulse_alpha))
         screen.blit(self.chase_glow_overlay, (0, 0))
 
+    def _make_pygame_gradient(self, width, height, color, power):
+        """Create radial-gradient surface using pure pygame (no numpy).
+        Alpha: 0 at center, 255 at edges. Uses a small buffer + smoothscale.
+        """
+        scale = 4
+        sw, sh = max(2, width // scale), max(2, height // scale)
+        small = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        scx, scy = (sw - 1) / 2.0, (sh - 1) / 2.0
+        smax = max(1, math.sqrt(scx**2 + scy**2))
+        r, g, b = color
+
+        for y in range(sh):
+            dy = y - scy
+            for x in range(sw):
+                dx = x - scx
+                t = min(1.0, math.sqrt(dx * dx + dy * dy) / smax)
+                a = min(255, int(255 * t**power))
+                small.set_at((x, y), (r, g, b, a))
+
+        try:
+            return pygame.transform.smoothscale(small, (width, height))
+        except Exception:
+            return pygame.transform.scale(small, (width, height))
+
     def _get_chase_glow(self, width, height):
         key = (width, height)
         if key not in self.chase_glow_cache:
@@ -128,15 +154,17 @@ class Effects:
                 import numpy as np
 
                 arr = pygame.surfarray.pixels_alpha(surf)
-                cx, cy = width // 2, height // 2
+                h, w = arr.shape
+                cx, cy = w // 2, h // 2
                 max_dist = math.sqrt(cx**2 + cy**2)
-                y_grid, x_grid = np.ogrid[:height, :width]
-                dist = np.sqrt((x_grid - cx) ** 2 + (y_grid - cy) ** 2)
+                y_idx = np.arange(h).reshape(h, 1)
+                x_idx = np.arange(w).reshape(1, w)
+                dist = np.sqrt((x_idx - cx) ** 2 + (y_idx - cy) ** 2)
                 t = np.clip(dist / max_dist, 0, 1)
-                arr[:] = np.clip(255 * t**3, 0, 255).astype(np.uint8).T
+                arr[:] = np.clip(255 * t**3, 0, 255).astype(np.uint8)
                 del arr
             except Exception:
-                pass
+                surf = self._make_pygame_gradient(width, height, (160, 0, 0), 3)
             self.chase_glow_cache[key] = surf
         return self.chase_glow_cache[key]
 
@@ -158,14 +186,16 @@ class Effects:
                 import numpy as np
 
                 arr = pygame.surfarray.pixels_alpha(surf)
-                cx, cy = width // 2, height // 2
+                h, w = arr.shape
+                cx, cy = w // 2, h // 2
                 max_dist = math.sqrt(cx**2 + cy**2)
-                y_grid, x_grid = np.ogrid[:height, :width]
-                dist = np.sqrt((x_grid - cx) ** 2 + (y_grid - cy) ** 2)
-                arr[:] = np.clip(255 * (dist / max_dist) ** 3, 0, 255).astype(np.uint8).T
+                y_idx = np.arange(h).reshape(h, 1)
+                x_idx = np.arange(w).reshape(1, w)
+                dist = np.sqrt((x_idx - cx) ** 2 + (y_idx - cy) ** 2)
+                arr[:] = np.clip(255 * (dist / max_dist) ** 3, 0, 255).astype(np.uint8)
                 del arr
             except Exception:
-                pass
+                surf = self._make_pygame_gradient(width, height, (160, 200, 255), 3)
             self.frost_cache[key] = surf
         return self.frost_cache[key]
 
